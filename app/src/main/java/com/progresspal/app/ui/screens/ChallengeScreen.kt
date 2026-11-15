@@ -618,10 +618,10 @@ private fun CreateChallenge(data: AppData, onClose: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = {
-                if (tasks.isEmpty()) { toast(context, "Add at least one task!"); return@Button }
+            onClick = create@{
+                if (tasks.isEmpty()) { toast(context, "Add at least one task!"); return@create }
                 val start = if (schedule) date.atTime(time).millis() else System.currentTimeMillis()
-                if (schedule && start <= System.currentTimeMillis()) { toast(context, "Scheduled time must be in the future!"); return@Button }
+                if (schedule && start <= System.currentTimeMillis()) { toast(context, "Scheduled time must be in the future!"); return@create }
                 val end = start + duration * 60_000L
                 val n = data.challenges.size + 1
                 val name = "Time Vs Task Challenge No:$n (${start.format("h:mm a").lowercase()}-${end.format("h:mm a").lowercase()}) ${start.format("dd MMM yy")}"

@@ -89,7 +89,7 @@ fun App() {
             ProjectDetailScreen(data, entry.arguments?.getString("id") ?: "", back)
         }
         composable("daily/{date}", arguments = listOf(navArgument("date") { type = NavType.StringType })) { entry ->
-            val date = runCatching { LocalDate.parse(entry.arguments?.getString("date")) }.getOrElse { today() }
+            val date = runCatching { LocalDate.parse(entry.arguments?.getString("date") ?: "") }.getOrElse { today() }
             DailyTasksScreen(data, date, back, openProject)
         }
         composable("completed") { CompletedScreen(data, back, openProject) }
