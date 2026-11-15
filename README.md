@@ -1,6 +1,8 @@
 # Progress Pal for Android
 
-A native Android version (Kotlin and Jetpack Compose) of the Progress Pal web app built on Lovable. It has the same screens and rules as the web app. All data stays on the phone, so it needs no Google account, no internet connection and no Google Play Services. That means it runs on Huawei phones.
+A native Android version (Kotlin and Jetpack Compose) of the Progress Pal web app built on Lovable, with the same screens and rules.
+
+**Sign in with Google** to use the same account and data as the website (https://progress-pal-02.lovable.app). The app opens the website's `/app-login` page in the phone's browser; after "Continue with Google" the browser hands the login back to the app through a `progresspal://auth` link. This works on Huawei phones without Google Play Services. Changes made in the app or on the website show up on both, and edits made offline are sent when the phone is back online. You can also tap "Use without an account" to keep data only on the phone.
 
 ## Features
 
@@ -13,7 +15,7 @@ A native Android version (Kotlin and Jetpack Compose) of the Progress Pal web ap
 | **Time vs Task Challenge** | Pick a duration from 30 min to 12 h, add timed tasks or import today's tasks, and see a difficulty score. Start now or schedule for later. Pause and resume, use per-task timers, abandon, view the result card, and see a "time without challenge" counter. |
 | **Challenge History** | Won/lost, win rate, best win streak, tasks done, focused time, and past challenges. |
 | **Analytics** | Bar chart by hour, day, week, month or year. Current and best streak, best day, average per day, today/week/month/year counts, most productive day, donut charts by weekday and time of day, a 4-week heatmap and a 6-month trend. |
-| **Backup & restore** | Save all data to a `.json` file and restore it, for example on a new phone. Open it from the ⋮ menu on Home. |
+| **Account & backup** | Sign in or out, sync now, and save all data to a `.json` file and restore it, for example on a new phone. Open it from the ⋮ menu on Home. |
 
 Recurring tasks reset automatically when a new day, week (Saturday) or month starts.
 
