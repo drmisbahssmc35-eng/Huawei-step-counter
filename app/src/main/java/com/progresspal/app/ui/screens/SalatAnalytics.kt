@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -101,6 +102,22 @@ fun SalatAnalytics(data: AppData) {
         if (stats.longest != null && stats.current < stats.longest.length) {
             val need = stats.longest.length - stats.current
             Text("$need more prayer${if (need == 1) "" else "s"} without a skip to beat your record", fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 2.dp))
+        }
+    }
+
+    // ── Current vs best streak (horizontal bars on the same scale) ──
+    AppCard(Modifier.fillMaxWidth().padding(bottom = 10.dp), corner = 18.dp, padding = 14.dp) {
+        SectionLabel("Present vs best streak", Icons.Filled.LocalFireDepartment, Brand.coral)
+        val best = stats.longest?.length ?: 0
+        val scale = maxOf(best, stats.current, 1).toFloat()
+        StreakBar("🔥 Present", stats.current, stats.current / scale, Brush.horizontalGradient(listOf(Brand.coral, Brand.amber)), Brand.coral)
+        Spacer(Modifier.height(10.dp))
+        StreakBar("👑 Best", best, best / scale, Brush.horizontalGradient(listOf(Brand.purple, Brand.blue)), Brand.purple)
+        stats.longest?.let {
+            Text(
+                "Best: ${it.start.format("MMM d")} – ${it.end.format("MMM d, yyyy")}",
+                fontSize = 10.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 
@@ -201,6 +218,18 @@ private fun SalatStat(icon: ImageVector, color: Color, value: String, label: Str
         Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
         Text(value, style = NumberStyle, fontSize = 24.sp, color = color)
         Text(label.uppercase(), fontSize = 9.sp, letterSpacing = 1.sp, color = Pal.c.mutedForeground)
+    }
+}
+
+@Composable
+private fun StreakBar(label: String, value: Int, fraction: Float, brush: Brush, color: Color) {
+    val anim by androidx.compose.animation.core.animateFloatAsState(fraction.coerceIn(0f, 1f), androidx.compose.animation.core.tween(700), label = "streak")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Pal.c.foreground, modifier = Modifier.width(84.dp))
+        Box(Modifier.weight(1f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(Pal.c.muted)) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(anim).clip(RoundedCornerShape(9.dp)).background(brush))
+        }
+        Text("$value", style = NumberStyle, fontSize = 15.sp, color = color, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
     }
 }
 

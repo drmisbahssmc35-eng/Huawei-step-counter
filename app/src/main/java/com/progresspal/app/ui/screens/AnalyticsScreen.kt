@@ -171,6 +171,15 @@ fun AnalyticsScreen(data: AppData, onBack: () -> Unit) {
     Screen {
         ScreenHeader("Analytics", "Your productivity insights", Icons.Filled.BarChart, Pal.c.primary, onBack)
 
+        // ── Today: day progress + task progress ──
+        run {
+            val todays = com.progresspal.app.data.dailyTasksFor(data, today)
+            AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp), corner = 18.dp) {
+                SectionLabel("Today · ${today.format("EEE, MMM d")}", Icons.Filled.Schedule, Pal.c.primary)
+                com.progresspal.app.ui.components.DayAndTaskBars(today, todays.count { it.completed }, todays.size)
+            }
+        }
+
         SalatAnalytics(data)
 
         // ── Bar chart with tabs ──

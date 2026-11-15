@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AppStore.autoResetRecurring()
         Cloud.pull()
+        ProgressWidget.refresh(this)
     }
 }
 
