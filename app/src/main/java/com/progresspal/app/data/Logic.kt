@@ -285,3 +285,36 @@ fun AppData.overallProgress(): Triple<Int, Int, Int> {
     val done = counted.sumOf { p -> p.tasks.count { it.completed } }
     return Triple(done, total, if (total > 0) ((done * 100.0) / total).roundToInt() else 0)
 }
+
+/** What the bead string shows: beads in the current streak, today's prayers still to come, and their names. */
+data class BeadInfo(val done: Int, val pending: Int, val labels: List<String>, val cleanDays: Int)
+
+fun AppData.salatBeads(today: LocalDate = today()): BeadInfo {
+    val stats = salatStats(today)
+    val todays = salatOn(today)
+    val lastDone = todays.indexOfLast { it.completed }
+    val pending = todays.drop(lastDone + 1)
+    // Today's beads that belong to the current run (after any prayer skipped earlier today).
+    val runStart = todays.take(lastDone + 1).indexOfLast { !it.completed } + 1
+    val todayInRun = if (lastDone >= 0) todays.subList(runStart, lastDone + 1) else emptyList()
+    var d = if (salatDayComplete(today)) today else today.minusDays(1)
+    var clean = 0
+    while (salatDayComplete(d) && clean < 3650) { clean++; d = d.minusDays(1) }
+    return BeadInfo(
+        done = stats.current,
+        pending = pending.size,
+        labels = (todayInRun + pending).map { it.task.title },
+        cleanDays = clean,
+    )
+}
+
+/** Streak tiers: the widget's glow colour and title change as the string grows. */
+enum class BeadTier(val label: String, val min: Int) {
+    BRONZE("🥉 BRONZE", 0), SILVER("🥈 SILVER", 25), GOLD("🥇 GOLD", 50), DIAMOND("💎 DIAMOND", 100), LEGEND("🌟 LEGEND", 250);
+
+    val next: BeadTier? get() = entries.getOrNull(ordinal + 1)
+
+    companion object {
+        fun of(streak: Int): BeadTier = entries.last { streak >= it.min }
+    }
+}

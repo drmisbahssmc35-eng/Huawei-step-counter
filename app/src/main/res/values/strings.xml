@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Progress Pal</string>
-    <string name="widget_description">Day progress, today\'s tasks and salat streak</string>
+    <string name="widget_description">Salat streak as a string of beads, plus today\'s tasks and day progress</string>
 </resources>

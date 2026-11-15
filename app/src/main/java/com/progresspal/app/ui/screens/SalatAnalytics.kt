@@ -44,6 +44,8 @@ import com.progresspal.app.data.AppData
 import com.progresspal.app.data.AppStore
 import com.progresspal.app.data.format
 import com.progresspal.app.data.salatOn
+import com.progresspal.app.data.salatBeads
+import androidx.compose.ui.graphics.asImageBitmap
 import com.progresspal.app.data.salatSlot
 import com.progresspal.app.data.salatStats
 import com.progresspal.app.data.salatTasks
@@ -86,6 +88,21 @@ fun SalatAnalytics(data: AppData) {
             Spacer(Modifier.width(8.dp))
             Text("Salat Streak", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Pal.c.foreground, modifier = Modifier.weight(1f))
             Text("Today ${stats.todayCount}/${stats.total}", fontSize = 12.sp, color = Pal.c.mutedForeground)
+        }
+        // The streak as a string of rainbow beads (same drawing as the widget).
+        val beadInfo = data.salatBeads()
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+            val density = androidx.compose.ui.platform.LocalDensity.current.density
+            val wPx = constraints.maxWidth
+            val bmp = androidx.compose.runtime.remember(beadInfo, wPx) {
+                com.progresspal.app.ui.BeadRenderer.render(
+                    com.progresspal.app.ui.BeadRenderer.Spec(beadInfo.done, beadInfo.pending, beadInfo.labels), wPx, density, maxRows = 8,
+                )
+            }
+            androidx.compose.foundation.Image(
+                bmp.asImageBitmap(), "Salat streak beads", Modifier.fillMaxWidth(),
+                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SalatStat(Icons.Filled.LocalFireDepartment, Brand.coral, "${stats.current}", "Current streak", Modifier.weight(1f))
