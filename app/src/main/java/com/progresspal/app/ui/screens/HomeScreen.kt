@@ -39,17 +39,18 @@ import androidx.compose.ui.unit.sp
 import com.progresspal.app.data.AppData
 import com.progresspal.app.data.activeProjects
 import com.progresspal.app.data.dailyTasksFor
+import com.progresspal.app.data.overallProgress
 import com.progresspal.app.data.today
 import com.progresspal.app.ui.components.AddProjectDialog
 import com.progresspal.app.ui.components.DailyTaskCard
 import com.progresspal.app.ui.components.IconTile
 import com.progresspal.app.ui.components.LinkCard
 import com.progresspal.app.ui.components.ProjectCard
+import com.progresspal.app.ui.components.SalatCard
 import com.progresspal.app.ui.components.WeekStrip
 import com.progresspal.app.ui.theme.Brand
 import com.progresspal.app.ui.theme.Pal
 import java.time.LocalDate
-import kotlin.math.roundToInt
 
 @Composable
 fun HomeScreen(
@@ -66,9 +67,7 @@ fun HomeScreen(
     var menu by remember { mutableStateOf(false) }
 
     val projects = data.projects
-    val total = projects.sumOf { it.tasks.size }
-    val done = projects.sumOf { p -> p.tasks.count { it.completed } }
-    val overall = if (total > 0) ((done * 100.0) / total).roundToInt() else 0
+    val (done, total, overall) = data.overallProgress()
     val active = activeProjects(projects)
     val doneCount = projects.count { it.completedAt != null }
 
@@ -95,6 +94,7 @@ fun HomeScreen(
 
         WeekStrip(selected) { selected = it }
         DailyTaskCard(selected, dailyTasksFor(data, selected)) { onOpenDaily(selected) }
+        SalatCard(data, selected)
 
         if (projects.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {

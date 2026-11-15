@@ -26,6 +26,7 @@ object AppStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeLock = Mutex()
     private lateinit var file: File
+    private lateinit var appContext: Context
     private var initialized = false
 
     private val _data = MutableStateFlow(AppData())
@@ -34,6 +35,7 @@ object AppStore {
     fun init(context: Context) {
         if (initialized) return
         initialized = true
+        appContext = context.applicationContext
         file = File(context.filesDir, "progress_pal.json")
         _data.value = try {
             if (file.exists()) json.decodeFromString(AppData.serializer(), file.readText()) else AppData()
@@ -72,6 +74,9 @@ object AppStore {
 
     private fun save() {
         val snapshot = _data.value
+        if (::appContext.isInitialized) {
+            runCatching { com.progresspal.app.ProgressWidget.refresh(appContext) }
+        }
         scope.launch {
             writeLock.withLock {
                 val tmp = File(file.parentFile, file.name + ".tmp")
@@ -142,6 +147,15 @@ object AppStore {
 
     private fun updateProject(id: String, block: (Project) -> Project) = mutate { d ->
         d.copy(projects = d.projects.map { if (it.id == id) block(it) else it })
+    }
+
+    /** Creates the "Salat" list with the five daily prayers (each a daily recurring task, so it syncs like any task). */
+    fun enableSalat() {
+        val pid = _data.value.salatProject()?.id ?: addProject(SALAT_PROJECT, ProjectColor.GREEN, null, null)
+        val existing = _data.value.salatTasks().map { it.title }.toSet()
+        SALAT_PRAYERS.filter { it.first !in existing }.forEach { (name, time) ->
+            addTask(pid, name, repeat = Repeat.DAILY, dueTime = time)
+        }
     }
 
     /** Returns the id of the "Daily Tasks" project, creating it if needed. */

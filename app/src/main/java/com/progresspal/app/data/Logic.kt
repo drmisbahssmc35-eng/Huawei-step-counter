@@ -169,3 +169,80 @@ fun Challenge.endedAt(): Long? {
         else -> null
     }
 }
+
+// ───────────────────────── Salat ─────────────────────────
+
+const val SALAT_PROJECT = "Salat"
+
+/** Prayer name → default reminder time (used only for ordering / display). */
+val SALAT_PRAYERS = listOf("Fajr" to "05:00", "Dhuhr" to "13:00", "Asr" to "16:30", "Maghrib" to "18:00", "Isha" to "20:00")
+
+fun AppData.salatProject(): Project? = projects.find { it.name == SALAT_PROJECT }
+
+/** The daily prayer tasks, in prayer order. */
+fun AppData.salatTasks(): List<Task> {
+    val tasks = salatProject()?.tasks?.filter { it.repeat == Repeat.DAILY && it.sourceTaskId == null } ?: return emptyList()
+    val order = SALAT_PRAYERS.map { it.first }
+    return tasks.sortedBy { t -> order.indexOf(t.title).let { if (it < 0) 99 else it } }
+}
+
+fun AppData.prayed(task: Task, date: LocalDate): Boolean = dateCompletions["${task.id}:${date.key()}"] == true
+
+fun AppData.prayedCount(date: LocalDate, tasks: List<Task> = salatTasks()): Int = tasks.count { prayed(it, date) }
+
+data class StreakRun(val start: LocalDate, val end: LocalDate) {
+    val length: Int get() = (java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1).toInt()
+}
+
+data class SalatStats(
+    val enabled: Boolean,
+    /** Consecutive days with all prayers, ending today (or yesterday if today isn't finished yet). */
+    val current: Int,
+    val longest: StreakRun?,
+    /** Every unbroken run of complete days, oldest first. */
+    val runs: List<StreakRun>,
+    val perfectDays: Int,
+    val todayCount: Int,
+    val total: Int,
+)
+
+fun AppData.salatStats(today: LocalDate = today()): SalatStats {
+    val tasks = salatTasks()
+    if (tasks.isEmpty()) return SalatStats(false, 0, null, emptyList(), 0, 0, 0)
+    val ids = tasks.map { it.id }.toSet()
+    val completeDays = dateCompletions.entries
+        .filter { it.value && it.key.substringBefore(':') in ids }
+        .groupingBy { it.key.substringAfter(':') }.eachCount()
+        .filter { it.value >= tasks.size }
+        .keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+        .sorted()
+
+    val runs = mutableListOf<StreakRun>()
+    for (d in completeDays) {
+        val last = runs.lastOrNull()
+        if (last != null && last.end.plusDays(1) == d) runs[runs.lastIndex] = last.copy(end = d) else runs += StreakRun(d, d)
+    }
+    val set = completeDays.toSet()
+    var cursor = if (today in set) today else today.minusDays(1)
+    var current = 0
+    while (cursor in set) { current++; cursor = cursor.minusDays(1) }
+
+    return SalatStats(
+        enabled = true,
+        current = current,
+        longest = runs.maxWithOrNull(compareBy<StreakRun> { it.length }.thenBy { it.end }),
+        runs = runs,
+        perfectDays = completeDays.size,
+        todayCount = prayedCount(today, tasks),
+        total = tasks.size,
+    )
+}
+
+/** Overall % of tasks done across all projects (same number as the Home header). */
+/** Excludes the Salat list, whose prayers are ticked per day and would otherwise never count as done. */
+fun AppData.overallProgress(): Triple<Int, Int, Int> {
+    val counted = projects.filter { it.name != SALAT_PROJECT }
+    val total = counted.sumOf { it.tasks.size }
+    val done = counted.sumOf { p -> p.tasks.count { it.completed } }
+    return Triple(done, total, if (total > 0) ((done * 100.0) / total).roundToInt() else 0)
+}

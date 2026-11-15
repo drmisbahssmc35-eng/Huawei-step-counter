@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Progress Pal</string>
+    <string name="widget_description">Total tasks done and your salat streak</string>
 </resources>

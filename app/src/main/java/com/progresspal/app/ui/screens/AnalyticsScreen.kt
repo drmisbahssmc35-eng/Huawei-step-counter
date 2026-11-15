@@ -171,6 +171,8 @@ fun AnalyticsScreen(data: AppData, onBack: () -> Unit) {
     Screen {
         ScreenHeader("Analytics", "Your productivity insights", Icons.Filled.BarChart, Pal.c.primary, onBack)
 
+        SalatAnalytics(data)
+
         // ── Bar chart with tabs ──
         AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp), corner = 18.dp, padding = 12.dp) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
