@@ -32,6 +32,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.progresspal.app.data.AppData
 import com.progresspal.app.data.AppStore
+import com.progresspal.app.data.Cloud
+import com.progresspal.app.ui.screens.AccountCard
+import com.progresspal.app.ui.screens.LoginScreen
 import com.progresspal.app.data.today
 import com.progresspal.app.ui.components.AppCard
 import com.progresspal.app.ui.components.ScreenHeader
@@ -53,6 +56,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         AppStore.init(applicationContext)
+        handleAuth(intent)
         setContent {
             ProgressPalTheme {
                 App()
@@ -60,15 +64,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleAuth(intent)
+    }
+
+    private fun handleAuth(intent: android.content.Intent?) {
+        if (Cloud.handleRedirect(intent?.data)) toast(this, "Signed in — syncing your data…")
+    }
+
     override fun onResume() {
         super.onResume()
         AppStore.autoResetRecurring()
+        Cloud.pull()
     }
 }
 
 @Composable
 fun App() {
     val data by AppStore.data.collectAsStateWithLifecycle()
+    val onboarded by Cloud.onboarded.collectAsStateWithLifecycle()
+    if (!onboarded) {
+        LoginScreen()
+        return
+    }
     val nav = rememberNavController()
     val back: () -> Unit = { nav.popBackStack() }
     val openProject: (String) -> Unit = { nav.navigate("project/$it") }
@@ -118,7 +137,8 @@ private fun BackupScreen(data: AppData, onBack: () -> Unit) {
         }
     }
     Screen {
-        ScreenHeader("Backup & restore", "Your data is stored only on this phone", Icons.Filled.Backup, Pal.c.primary, onBack)
+        ScreenHeader("Account & backup", null, Icons.Filled.Backup, Pal.c.primary, onBack)
+        AccountCard()
         AppCard(Modifier.fillMaxWidth()) {
             Text(
                 "${data.projects.size} projects · ${data.projects.sumOf { it.tasks.size }} tasks · ${data.challenges.size} challenges",

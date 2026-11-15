@@ -43,10 +43,12 @@ object AppStore {
             AppData()
         }
         autoResetRecurring()
+        Cloud.init(context)
         scope.launch {
             while (true) {
                 delay(60_000)
                 autoResetRecurring()
+                Cloud.pull()
             }
         }
     }
@@ -55,7 +57,20 @@ object AppStore {
     private fun now() = System.currentTimeMillis()
 
     private fun mutate(block: (AppData) -> AppData) {
+        val old = _data.value
         _data.update(block)
+        Cloud.onLocalChange(old, _data.value)
+        save()
+    }
+
+    /** Replaces local data with what's in the cloud (no push back). */
+    fun replaceFromCloud(fresh: AppData) {
+        _data.value = fresh
+        save()
+        autoResetRecurring()
+    }
+
+    private fun save() {
         val snapshot = _data.value
         scope.launch {
             writeLock.withLock {

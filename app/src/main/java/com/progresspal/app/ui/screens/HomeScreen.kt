@@ -88,7 +88,7 @@ fun HomeScreen(
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More", tint = Pal.c.mutedForeground) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Backup & restore") }, onClick = { menu = false; onOpenBackup() })
+                    DropdownMenuItem(text = { Text("Account & backup") }, onClick = { menu = false; onOpenBackup() })
                 }
             }
         }
