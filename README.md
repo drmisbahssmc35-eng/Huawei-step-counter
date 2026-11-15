@@ -1,0 +1,52 @@
+# Progress Pal for Android
+
+A native Android version (Kotlin and Jetpack Compose) of the Progress Pal web app built on Lovable. It has the same screens and rules as the web app. All data stays on the phone, so it needs no Google account, no internet connection and no Google Play Services. That means it runs on Huawei phones.
+
+## Features
+
+| Screen | What it does |
+| --- | --- |
+| **Home** | Overall task count and % done. A Saturday-first week calendar. A Daily Tasks card with day-progress and task-progress bars. Project cards with a live deadline countdown and an 🔥 URGENT stamp when less than 24h is left. Links to Challenge, Analytics and Completed. |
+| **Project** | Name, target and deadline. A live "time remaining" bar, a circular progress ring and Total/Done/Pending stats. Add tasks with a deadline date/time and a repeat setting (none, once, daily, weekly, monthly). Edit and delete tasks. |
+| **Daily Tasks** | Tasks for any date. Recurring tasks (daily, weekly, monthly, or custom days) are ticked off per date. A one-off task is added when you pick a future date. Edit or delete a repeating task for *only this day* or for *this day and all future days*. |
+| **Completed** | Finished projects. You can change the completion date and time. |
+| **Time vs Task Challenge** | Pick a duration from 30 min to 12 h, add timed tasks or import today's tasks, and see a difficulty score. Start now or schedule for later. Pause and resume, use per-task timers, abandon, view the result card, and see a "time without challenge" counter. |
+| **Challenge History** | Won/lost, win rate, best win streak, tasks done, focused time, and past challenges. |
+| **Analytics** | Bar chart by hour, day, week, month or year. Current and best streak, best day, average per day, today/week/month/year counts, most productive day, donut charts by weekday and time of day, a 4-week heatmap and a 6-month trend. |
+| **Backup & restore** | Save all data to a `.json` file and restore it, for example on a new phone. Open it from the ⋮ menu on Home. |
+
+Recurring tasks reset automatically when a new day, week (Saturday) or month starts.
+
+## Get the APK
+
+Every push runs **Build APK** under GitHub **Actions**. Open the latest run and download the `ProgressPal-apk` artifact. It contains:
+
+- `app-release.apk`: the small, optimized build. Install this one.
+- `app-debug.apk`
+
+Copy the APK to the phone and open it. Android will ask you to allow installs from that source. On Huawei: *Settings → Security → Install apps from external sources*.
+
+> The release APK is signed with a debug key so it installs directly. Before publishing to AppGallery or Google Play, create your own keystore and set `signingConfig` in `app/build.gradle.kts`.
+
+## Build it yourself
+
+Requirements: Android Studio (Ladybug or newer) or JDK 17 plus the Android SDK (platform 35).
+
+```bash
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
+```
+
+## Project layout
+
+```
+app/src/main/java/com/progresspal/app/
+├── MainActivity.kt            navigation + backup screen
+├── data/
+│   ├── Models.kt              Project, Task, Challenge, ...
+│   ├── AppStore.kt            on-device JSON storage and all actions
+│   └── Logic.kt               scheduling rules, progress, difficulty score
+└── ui/
+    ├── theme/Theme.kt         colours (same palette as the web app), light/dark
+    ├── components/            cards, bars, rings, week strip, task row, dialogs
+    └── screens/               Home, Project, Daily Tasks, Completed, Challenge, Analytics
+```
