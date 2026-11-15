@@ -34,7 +34,7 @@ import com.progresspal.app.data.AppData
 import com.progresspal.app.data.AppStore
 import com.progresspal.app.data.format
 import com.progresspal.app.data.formatTime12
-import com.progresspal.app.data.prayed
+import com.progresspal.app.data.salatOn
 import com.progresspal.app.data.salatStats
 import com.progresspal.app.data.salatTasks
 import com.progresspal.app.data.today
@@ -54,7 +54,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Salat tracker", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Pal.c.foreground)
-                    Text("Tick your 5 daily prayers and build a streak", fontSize = 12.sp, color = Pal.c.mutedForeground)
+                    Text("Adds Fajr–Isha to Daily Tasks so you can build a streak", fontSize = 12.sp, color = Pal.c.mutedForeground)
                 }
                 TextButton(onClick = { AppStore.enableSalat() }) { Text("Start") }
             }
@@ -63,7 +63,8 @@ fun SalatCard(data: AppData, date: LocalDate) {
     }
     val stats = data.salatStats()
     val isToday = date == today()
-    val count = tasks.count { data.prayed(it, date) }
+    val entries = data.salatOn(date)
+    val count = entries.count { it.completed }
     val future = date.isAfter(today())
 
     AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp), borderColor = Brand.green.copy(alpha = .3f)) {
@@ -73,7 +74,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
             Column(Modifier.weight(1f)) {
                 Text("Salat", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Pal.c.foreground)
                 Text(
-                    (if (isToday) "Today" else date.format("EEE, MMM d")) + " · $count/${tasks.size} prayed",
+                    (if (isToday) "Today" else date.format("EEE, MMM d")) + " · $count/${entries.size} prayed",
                     fontSize = 11.sp, color = Pal.c.mutedForeground,
                 )
             }
@@ -88,8 +89,12 @@ fun SalatCard(data: AppData, date: LocalDate) {
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            tasks.forEach { t ->
-                val done = data.prayed(t, date)
+            if (entries.isEmpty()) {
+                Text("No prayers scheduled on this day", fontSize = 12.sp, color = Pal.c.mutedForeground)
+            }
+            entries.forEach { e ->
+                val t = e.task
+                val done = e.completed
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                     Box(
                         Modifier
@@ -99,7 +104,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
                             .border(2.dp, if (done) Brand.green else Pal.c.border, CircleShape)
                             .clickable(enabled = !future) {
                                 if (done) Sounds.uncheck() else Sounds.check()
-                                AppStore.toggleDateTask(t.id, date)
+                                if (e.isRecurring) AppStore.toggleDateTask(t.id, date) else AppStore.toggleTask(e.project.id, t.id)
                             },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -113,7 +118,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        BarProgress(if (tasks.isEmpty()) 0 else count * 100 / tasks.size, androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Brand.green, Brand.blue)))
+        BarProgress(if (entries.isEmpty()) 0 else count * 100 / entries.size, androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Brand.green, Brand.blue)))
         stats.longest?.let {
             Text(
                 "Longest streak: ${it.length} days (${it.start.format("MMM d")} – ${it.end.format("MMM d, yyyy")})",

@@ -42,8 +42,8 @@ import androidx.compose.ui.unit.sp
 import com.progresspal.app.data.AppData
 import com.progresspal.app.data.AppStore
 import com.progresspal.app.data.format
-import com.progresspal.app.data.prayed
-import com.progresspal.app.data.prayedCount
+import com.progresspal.app.data.salatOn
+import com.progresspal.app.data.salatSlot
 import com.progresspal.app.data.salatStats
 import com.progresspal.app.data.salatTasks
 import com.progresspal.app.data.today
@@ -68,7 +68,7 @@ fun SalatAnalytics(data: AppData) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Salat streak", fontWeight = FontWeight.SemiBold, color = Pal.c.foreground)
-                    Text("Start tracking your 5 daily prayers to see streaks here", fontSize = 12.sp, color = Pal.c.mutedForeground)
+                    Text("No prayer tasks found. Tap Start to add Fajr–Isha to Daily Tasks", fontSize = 12.sp, color = Pal.c.mutedForeground)
                 }
                 TextButton(onClick = { AppStore.enableSalat() }) { Text("Start") }
             }
@@ -146,10 +146,11 @@ fun SalatAnalytics(data: AppData) {
         val days = (29 downTo 0).map { today.minusDays(it.toLong()) }
         Row(Modifier.fillMaxWidth().height(110.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
             days.forEach { d ->
-                val n = data.prayedCount(d, tasks)
-                val full = n >= tasks.size && tasks.isNotEmpty()
+                val scheduled = data.salatOn(d)
+                val n = scheduled.count { it.completed }
+                val full = scheduled.isNotEmpty() && n == scheduled.size
                 Box(
-                    Modifier.weight(1f).fillMaxHeight(max(.03f, n.toFloat() / tasks.size.coerceAtLeast(1)))
+                    Modifier.weight(1f).fillMaxHeight(max(.03f, n.toFloat() / scheduled.size.coerceAtLeast(1)))
                         .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                         .background(
                             when {
@@ -166,19 +167,22 @@ fun SalatAnalytics(data: AppData) {
             Text("Today", fontSize = 9.sp, color = Pal.c.mutedForeground)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 6.dp)) {
-            Legend(Brand.green, "All ${tasks.size}"); Legend(Brand.amber, "Some missed"); Legend(Pal.c.muted, "None")
+            Legend(Brand.green, "All prayed"); Legend(Brand.amber, "Some missed"); Legend(Pal.c.muted, "None")
         }
     }
 
     // ── Per-prayer consistency (last 30 days) ──
     AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp), corner = 18.dp, padding = 12.dp) {
         SectionLabel("Each prayer · last 30 days", Icons.Filled.CheckCircle, Brand.blue)
-        tasks.forEachIndexed { i, t ->
-            val n = (0..29).count { data.prayed(t, today.minusDays(it.toLong())) }
-            val pct = (n * 100.0 / 30).roundToInt()
+        // Group by prayer (Zahar and Zumma both count as Dhuhr) over the days each was scheduled.
+        val last30 = (0..29).map { today.minusDays(it.toLong()) }.map { data.salatOn(it) }
+        val names = tasks.groupBy { salatSlot(it.title) }.mapValues { (_, ts) -> ts.first().title }
+        names.entries.forEachIndexed { i, (slot, label) ->
+            val sched = last30.flatMap { day -> day.filter { salatSlot(it.task.title) == slot } }
+            val pct = if (sched.isEmpty()) 0 else (sched.count { it.completed } * 100.0 / sched.size).roundToInt()
             val c = Brand.chartColors[i % Brand.chartColors.size]
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(t.title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Pal.c.foreground, modifier = Modifier.width(64.dp))
+                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Pal.c.foreground, modifier = Modifier.width(64.dp))
                 Box(Modifier.weight(1f).height(10.dp).clip(CircleShape).background(Pal.c.muted)) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(pct / 100f).clip(CircleShape).background(c))
                 }

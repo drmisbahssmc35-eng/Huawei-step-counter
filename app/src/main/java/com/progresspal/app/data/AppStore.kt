@@ -46,6 +46,7 @@ object AppStore {
         }
         autoResetRecurring()
         Cloud.init(context)
+        removeDuplicateSalatList()
         scope.launch {
             while (true) {
                 delay(60_000)
@@ -70,6 +71,7 @@ object AppStore {
         _data.value = fresh
         save()
         autoResetRecurring()
+        removeDuplicateSalatList()
     }
 
     private fun save() {
@@ -149,13 +151,24 @@ object AppStore {
         d.copy(projects = d.projects.map { if (it.id == id) block(it) else it })
     }
 
-    /** Creates the "Salat" list with the five daily prayers (each a daily recurring task, so it syncs like any task). */
+    /** Adds the five daily prayers to the "Daily Tasks" list (only used when the user has no prayer tasks yet). */
     fun enableSalat() {
-        val pid = _data.value.salatProject()?.id ?: addProject(SALAT_PROJECT, ProjectColor.GREEN, null, null)
-        val existing = _data.value.salatTasks().map { it.title }.toSet()
-        SALAT_PRAYERS.filter { it.first !in existing }.forEach { (name, time) ->
-            addTask(pid, name, repeat = Repeat.DAILY, dueTime = time)
-        }
+        if (_data.value.salatTasks().isNotEmpty()) return
+        val pid = dailyProjectId()
+        SALAT_PRAYERS.forEach { (name, time) -> addTask(pid, name, repeat = Repeat.DAILY, dueTime = time) }
+    }
+
+    /**
+     * An earlier version created a separate "Salat" list even when the prayers already existed in Daily Tasks.
+     * Remove that duplicate list if none of its prayers were ever ticked.
+     */
+    fun removeDuplicateSalatList() {
+        val d = _data.value
+        val salat = d.salatProject() ?: return
+        val ids = salat.tasks.map { it.id }.toSet()
+        val elsewhere = d.projects.any { p -> p.id != salat.id && p.tasks.any { salatSlot(it.title) != null } }
+        val used = d.dateCompletions.any { it.value && it.key.substringBefore(':') in ids } || salat.tasks.any { it.completed }
+        if (elsewhere && !used) deleteProject(salat.id)
     }
 
     /** Returns the id of the "Daily Tasks" project, creating it if needed. */
