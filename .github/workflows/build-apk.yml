@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,10 +24,25 @@ jobs:
       - name: Build debug and release APKs
         run: ./gradlew --no-daemon assembleDebug assembleRelease
 
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk ProgressPal.apk
+
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: ProgressPal-apk
           path: |
-            app/build/outputs/apk/release/app-release.apk
+            ProgressPal.apk
             app/build/outputs/apk/debug/app-debug.apk
+
+      # Publishes the APK as a direct phone download:
+      # https://github.com/<owner>/<repo>/releases/latest/download/ProgressPal.apk
+      - name: Publish download link
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-apk
+          name: Progress Pal (latest build)
+          body: Tap **ProgressPal.apk** below to download and install on your phone.
+          make_latest: true
+          files: ProgressPal.apk
