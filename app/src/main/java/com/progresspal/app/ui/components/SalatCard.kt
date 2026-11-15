@@ -85,7 +85,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
                 Icon(Icons.Filled.LocalFireDepartment, null, tint = Brand.coral, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("${stats.current}", style = NumberStyle, fontSize = 16.sp, color = Brand.coral)
-                Text(if (stats.current == 1) " day" else " days", fontSize = 11.sp, color = Brand.coral)
+                Text(if (stats.current == 1) " prayer" else " prayers", fontSize = 11.sp, color = Brand.coral)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -121,7 +121,7 @@ fun SalatCard(data: AppData, date: LocalDate) {
         BarProgress(if (entries.isEmpty()) 0 else count * 100 / entries.size, androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Brand.green, Brand.blue)))
         stats.longest?.let {
             Text(
-                "Longest streak: ${it.length} days (${it.start.format("MMM d")} – ${it.end.format("MMM d, yyyy")})",
+                "Current streak: ${stats.current} prayers without a skip · Best: ${it.length} (${it.start.format("MMM d")} – ${it.end.format("MMM d, yyyy")})",
                 fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 8.dp),
             )
         }

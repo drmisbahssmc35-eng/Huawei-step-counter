@@ -87,28 +87,28 @@ fun SalatAnalytics(data: AppData) {
             Text("Today ${stats.todayCount}/${stats.total}", fontSize = 12.sp, color = Pal.c.mutedForeground)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SalatStat(Icons.Filled.LocalFireDepartment, Brand.coral, "${stats.current}", "Current", Modifier.weight(1f))
-            SalatStat(Icons.Filled.WorkspacePremium, Brand.purple, "${stats.longest?.length ?: 0}", "Longest", Modifier.weight(1f))
+            SalatStat(Icons.Filled.LocalFireDepartment, Brand.coral, "${stats.current}", "Current streak", Modifier.weight(1f))
+            SalatStat(Icons.Filled.WorkspacePremium, Brand.purple, "${stats.longest?.length ?: 0}", "Longest streak", Modifier.weight(1f))
             SalatStat(Icons.Filled.CheckCircle, Brand.green, "${stats.perfectDays}", "Perfect days", Modifier.weight(1f))
         }
         stats.longest?.let { l ->
             Text(
-                "🏆 Longest streak: ${l.length} day${if (l.length == 1) "" else "s"} · ${l.start.format("MMM d, yyyy")} – ${l.end.format("MMM d, yyyy")}" +
+                "🏆 Longest streak: ${l.length} prayer${if (l.length == 1) "" else "s"} in a row · ${l.start.format("MMM d, yyyy")} – ${l.end.format("MMM d, yyyy")}" +
                     if (stats.current > 0 && stats.current >= l.length) "  (that's now — keep going!)" else "",
                 fontSize = 12.sp, color = Brand.purple, modifier = Modifier.padding(top = 10.dp),
             )
         }
         if (stats.longest != null && stats.current < stats.longest.length) {
             val need = stats.longest.length - stats.current
-            Text("$need more perfect day${if (need == 1) "" else "s"} to beat your record", fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 2.dp))
+            Text("$need more prayer${if (need == 1) "" else "s"} without a skip to beat your record", fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 2.dp))
         }
     }
 
     // ── Streak history chart: one bar per unbroken run; the longest is highlighted ──
     AppCard(Modifier.fillMaxWidth().padding(bottom = 10.dp), corner = 18.dp, padding = 12.dp) {
-        SectionLabel("Streak history", Icons.Filled.Timeline, Brand.purple)
+        SectionLabel("Streak history · prayers in a row", Icons.Filled.Timeline, Brand.purple)
         if (stats.runs.isEmpty()) {
-            Text("Pray all 5 on a day to start your first streak.", fontSize = 12.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(vertical = 24.dp).fillMaxWidth(), textAlign = TextAlign.Center)
+            Text("Tick your prayers to start your first streak.", fontSize = 12.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(vertical = 24.dp).fillMaxWidth(), textAlign = TextAlign.Center)
         } else {
             val mx = stats.runs.maxOf { it.length }.coerceAtLeast(1)
             val listState = rememberLazyListState()

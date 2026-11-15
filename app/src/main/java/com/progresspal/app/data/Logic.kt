@@ -209,17 +209,17 @@ fun AppData.salatOn(date: LocalDate): List<DailyEntry> =
 
 fun AppData.prayedCount(date: LocalDate): Int = salatOn(date).count { it.completed }
 
-data class StreakRun(val start: LocalDate, val end: LocalDate) {
-    val length: Int get() = (java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1).toInt()
-}
+/** An unbroken run of prayers performed without skipping one. */
+data class StreakRun(val start: LocalDate, val end: LocalDate, val length: Int)
 
 data class SalatStats(
     val enabled: Boolean,
-    /** Consecutive days with every scheduled prayer done, ending today (or yesterday if today isn't finished yet). */
+    /** Prayers performed in a row without a skip, up to now (today's not-yet-prayed ones don't break it). */
     val current: Int,
     val longest: StreakRun?,
-    /** Every unbroken run of complete days, oldest first. */
+    /** Every unbroken run of prayers, oldest first. */
     val runs: List<StreakRun>,
+    /** Days on which every scheduled prayer was performed. */
     val perfectDays: Int,
     val todayCount: Int,
     val total: Int,
@@ -238,21 +238,34 @@ fun AppData.salatStats(today: LocalDate = today()): SalatStats {
         .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
         .minOrNull()
 
+    // Walk every scheduled prayer in order (day by day, Fajr → Isha) and count unbroken runs.
     val runs = mutableListOf<StreakRun>()
     var perfect = 0
+    var count = 0
+    var runStart: LocalDate? = null
+    var runEnd: LocalDate? = null
     if (first != null) {
         var d: LocalDate = first
         while (!d.isAfter(today)) {
-            if (salatDayComplete(d)) {
-                perfect++
-                val last = runs.lastOrNull()
-                if (last != null && last.end.plusDays(1) == d) runs[runs.lastIndex] = last.copy(end = d) else runs += StreakRun(d, d)
+            val entries = salatOn(d)
+            if (entries.isNotEmpty() && entries.all { it.completed }) perfect++
+            // Today: prayers after the last one performed are still pending, not skipped.
+            val counted = if (d == today) entries.dropLastWhile { !it.completed } else entries
+            for (e in counted) {
+                if (e.completed) {
+                    if (count == 0) runStart = d
+                    count++
+                    runEnd = d
+                } else if (count > 0) {
+                    runs += StreakRun(runStart!!, runEnd!!, count)
+                    count = 0
+                }
             }
             d = d.plusDays(1)
         }
     }
-    val latest = runs.lastOrNull()
-    val current = if (latest != null && (latest.end == today || latest.end == today.minusDays(1))) latest.length else 0
+    val current = count
+    if (count > 0) runs += StreakRun(runStart!!, runEnd!!, count)
     val todays = salatOn(today)
     return SalatStats(
         enabled = true,

@@ -58,7 +58,7 @@ class ProgressWidget : AppWidgetProvider() {
                 setTextViewText(R.id.widget_streak, "🔥 ${salat.current}")
                 setTextViewText(
                     R.id.widget_salat,
-                    if (salat.enabled) "Salat today ${salat.todayCount}/${salat.total} · best ${salat.longest?.length ?: 0} days"
+                    if (salat.enabled) "Salat today ${salat.todayCount}/${salat.total} · best ${salat.longest?.length ?: 0} in a row"
                     else "Open the app and tap Start on the Salat card",
                 )
                 setOnClickPendingIntent(R.id.widget_root, open)
