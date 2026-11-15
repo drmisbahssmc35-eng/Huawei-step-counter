@@ -17,14 +17,25 @@ android {
         versionName = "1.0"
     }
 
+    // One permanent key for every build, so a new APK installs as an update over the old one.
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("progresspal-release.keystore")
+            storePassword = "progresspal"
+            keyAlias = "progresspal"
+            keyPassword = "progresspal"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the release APK installs directly.
-            // Replace with your own keystore before publishing to an app store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("fixed")
         }
     }
 
