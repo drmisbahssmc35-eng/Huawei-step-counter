@@ -241,7 +241,7 @@ fun AppData.salatStats(today: LocalDate = today()): SalatStats {
     val runs = mutableListOf<StreakRun>()
     var perfect = 0
     if (first != null) {
-        var d = first
+        var d: LocalDate = first
         while (!d.isAfter(today)) {
             if (salatDayComplete(d)) {
                 perfect++
