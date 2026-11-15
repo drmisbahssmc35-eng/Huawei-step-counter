@@ -101,6 +101,7 @@ object BeadRenderer {
         }
 
         val r = size / 2f
+        val doneEnd = (if (hidden > 0) 1 else 0) + shownDone // slots before this index hold beads
         pos.forEachIndexed { i, (x, y) ->
             val beadIndex = i + if (hidden > 0) hidden - 1 else 0 // keeps colours stable as the string grows
             when {
@@ -109,7 +110,7 @@ object BeadRenderer {
                     text.color = Color.rgb(255, 211, 110); text.textSize = min(11 * density, r * 0.8f)
                     c.drawText("+$hidden", x, y + text.textSize / 3f, text)
                 }
-                i < (if (hidden > 0) 1 else 0) + shownDone -> {
+                i < doneEnd -> {
                     val h = HUES[beadIndex % HUES.size]
                     c.drawCircle(x, y + 1.5f * density, r, shadow)
                     bead.shader = RadialGradient(
@@ -134,7 +135,7 @@ object BeadRenderer {
             spec.labels.forEachIndexed { k, name ->
                 val i = firstLabelled + k
                 if (i < 0 || i >= pos.size) return@forEachIndexed
-                val isDone = i < (if (hidden > 0) 1 else 0) + shownDone
+                val isDone = i < doneEnd
                 text.color = if (isDone) Color.rgb(233, 236, 245) else Color.rgb(138, 144, 166)
                 c.drawText(name, pos[i][0], pos[i][1] + r + 12 * density, text)
             }
