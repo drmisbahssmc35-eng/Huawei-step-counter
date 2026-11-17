@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "ProgressPal"
 include(":app")
+include(":timetracker")

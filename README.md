@@ -52,3 +52,18 @@ app/src/main/java/com/progresspal/app/
     ├── components/            cards, bars, rings, week strip, task row, dialogs
     └── screens/               Home, Project, Daily Tasks, Completed, Challenge, Analytics
 ```
+
+---
+
+# TimeTally (time tracker)
+
+A second, separate app in this repo (`timetracker/` module): a simple time tracker that keeps all data on the phone.
+
+| Screen | What it does |
+| --- | --- |
+| **Timers** | A grid of coloured activity tiles. Tap a tile to start its timer, tap again to stop and save a record. Running timers are shown at the top with a live clock. Hold a tile to edit its name, colour and emoji, change its position, or delete it. Hold a running timer to change its start time, add a comment, or discard it. |
+| **Records** | Records for any day, newest first, with gaps shown as "Untracked" (tap a gap to fill it). Tap a record to edit its activity, start, end and comment, or delete it. The + button adds a record by hand. |
+| **Statistics** | Day, week, month, year or all time. A donut chart, stacked bar chart (by hour, day or month), and time and percentage per activity, including untracked time. |
+| **Settings** | Allow several timers at once, show untracked time, notification with a Stop button, week start day. Save and restore a `.json` backup, export records to `.csv`, delete all records. |
+
+Download: `TimeTally.apk` from the same **latest-apk** release as Progress Pal, or build it with `./gradlew :timetracker:assembleRelease`.
