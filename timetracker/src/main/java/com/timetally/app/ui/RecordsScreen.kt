@@ -5,6 +5,7 @@ package com.timetally.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +33,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,17 +50,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.timetally.app.data.ActivityType
 import com.timetally.app.data.AppData
+import com.timetally.app.data.Running
 import com.timetally.app.data.Store
 import com.timetally.app.data.TimeRecord
 import com.timetally.app.data.fmtClock
 import com.timetally.app.data.fmtDateTime
 import com.timetally.app.data.fmtDay
 import com.timetally.app.data.fmtDur
+import com.timetally.app.data.fmtDurSec
 import com.timetally.app.data.startMillis
 import java.time.LocalDate
 
 /** One row in the day list: a saved record, a running timer, or a gap. */
-private sealed class Row_ {
+internal sealed class Row_ {
     abstract val start: Long
     abstract val end: Long
     data class Rec(val r: TimeRecord, override val start: Long, override val end: Long) : Row_()
@@ -73,8 +75,11 @@ fun RecordsScreen(data: AppData) {
     val now = rememberNow()
     val ctx = LocalContext.current
     var dayEpoch by rememberSaveable { mutableStateOf(LocalDate.now().toEpochDay()) }
+    var listMode by rememberSaveable { mutableStateOf(false) }
+    var zoom by rememberSaveable { mutableIntStateOf(1) }
     val day = LocalDate.ofEpochDay(dayEpoch)
     var editing by remember { mutableStateOf<TimeRecord?>(null) }
+    var editingRunning by remember { mutableStateOf<Running?>(null) }
 
     val from = day.startMillis()
     val to = day.plusDays(1).startMillis()
@@ -87,68 +92,124 @@ fun RecordsScreen(data: AppData) {
             .forEach { add(Row_.Live(it.typeId, maxOf(it.start, from), minOf(now, to))) }
     }.sortedBy { it.start }
 
-    val withGaps = if (!data.settings.showUntracked || from > now) rows else buildList<Row_> {
+    val gaps = if (!data.settings.showUntracked || from > now) emptyList() else buildList<Row_.Gap> {
         var cursor = from
         rows.forEach { r ->
             if (r.start - cursor >= 60_000) add(Row_.Gap(cursor, r.start))
-            add(r)
             cursor = maxOf(cursor, r.end)
         }
         if (dayEnd - cursor >= 60_000) add(Row_.Gap(cursor, dayEnd))
     }
-    val shown = withGaps.reversed() // newest on top
-    val total = rows.filter { it !is Row_.Gap }.sumOf { it.end - it.start }
+    val total = rows.sumOf { it.end - it.start }
+    val untracked = gaps.sumOf { it.end - it.start }
 
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            PeriodSwitcher(
-                title = when (dayEpoch - LocalDate.now().toEpochDay()) {
-                    0L -> "Today"; -1L -> "Yesterday"; else -> fmtDay(day)
-                },
-                onPrev = { dayEpoch-- },
-                onNext = { dayEpoch++ },
-                onTitle = { pickDate(ctx, day) { dayEpoch = it.toEpochDay() } },
+    fun openRow(row: Row_) {
+        when (row) {
+            is Row_.Rec -> editing = row.r
+            is Row_.Live -> editingRunning = data.running.firstOrNull { it.typeId == row.typeId }
+            is Row_.Gap -> editing = TimeRecord(0, data.types.firstOrNull()?.id ?: 0, row.start, row.end)
+        }
+    }
+    fun addNew() {
+        val end = if (day == LocalDate.now()) now else to - 1
+        editing = TimeRecord(0, data.types.firstOrNull()?.id ?: 0, maxOf(from, end - 3_600_000), end)
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                when (dayEpoch - LocalDate.now().toEpochDay()) { 0L -> "Today"; -1L -> "Yesterday"; else -> fmtDay(day) },
+                fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f),
             )
             Text(
-                "Tracked: ${fmtDur(total)}",
-                Modifier.padding(horizontal = 16.dp), fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "Tracked ${fmtDur(total)}" + if (untracked > 0) "  ·  Untracked ${fmtDur(untracked)}" else "",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (shown.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No records for this day", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else LazyColumn(
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(shown) { row ->
-                    when (row) {
-                        is Row_.Rec -> {
-                            val t = data.types.firstOrNull { it.id == row.r.typeId }
-                            RecordRow(t, row.start, row.end, row.r.comment, live = false) { editing = row.r }
-                        }
-                        is Row_.Live -> {
-                            val t = data.types.firstOrNull { it.id == row.typeId }
-                            RecordRow(t, row.start, row.end, data.running.firstOrNull { it.typeId == row.typeId }?.comment ?: "", live = true) {}
-                        }
-                        is Row_.Gap -> GapRow(row.start, row.end) {
-                            editing = TimeRecord(0, data.types.firstOrNull()?.id ?: 0, row.start, row.end)
+        }
+
+        // Swipe left/right to change day.
+        var drag by remember { mutableFloatStateOf(0f) }
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (drag > 140) dayEpoch-- else if (drag < -140) dayEpoch++
+                            drag = 0f
+                        },
+                        onDragCancel = { drag = 0f },
+                    ) { _, dx -> drag += dx }
+                },
+        ) {
+            if (listMode) {
+                val shown = (rows + gaps).sortedByDescending { it.start }
+                if (shown.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No records for this day", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else LazyColumn(
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(shown) { row ->
+                        when (row) {
+                            is Row_.Rec -> RecordRow(data.types.firstOrNull { it.id == row.r.typeId }, row.start, row.end, row.r.comment, live = false) { openRow(row) }
+                            is Row_.Live -> RecordRow(
+                                data.types.firstOrNull { it.id == row.typeId }, row.start, row.end,
+                                data.running.firstOrNull { it.typeId == row.typeId }?.comment ?: "", live = true,
+                            ) { openRow(row) }
+                            is Row_.Gap -> GapRow(row.start, row.end) { openRow(row) }
                         }
                     }
                 }
+            } else {
+                val blocks = rows.map { row ->
+                    when (row) {
+                        is Row_.Rec -> {
+                            val t = data.types.firstOrNull { it.id == row.r.typeId }
+                            TimelineBlock(row, row.start, row.end, t, row.r.comment, live = false)
+                        }
+                        is Row_.Live -> {
+                            val t = data.types.firstOrNull { it.id == row.typeId }
+                            TimelineBlock(row, row.start, row.end, t, data.running.firstOrNull { it.typeId == row.typeId }?.comment ?: "", live = true)
+                        }
+                        is Row_.Gap -> TimelineBlock(row, row.start, row.end, null, "", false)
+                    }
+                }
+                DayTimeline(
+                    dayKey = dayEpoch, from = from, blocks = blocks,
+                    gaps = gaps.map { it.start to it.end },
+                    nowMs = if (now in from until to) now else null,
+                    zoom = zoom,
+                    onBlock = { openRow(it as Row_) },
+                    onGap = { s, e -> openRow(Row_.Gap(s, e)) },
+                )
             }
         }
-        FloatingActionButton(
-            onClick = {
-                val end = if (day == LocalDate.now()) now else to - 1
-                editing = TimeRecord(0, data.types.firstOrNull()?.id ?: 0, maxOf(from, end - 3_600_000), end)
-            },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        ) { Icon(Icons.Filled.Add, "Add record") }
+
+        DayStrip(
+            day = day,
+            onPick = { dayEpoch = it.toEpochDay() },
+            onAdd = { addNew() },
+            listMode = listMode,
+            zoom = zoom,
+            onPickDate = { pickDate(ctx, day) { dayEpoch = it.toEpochDay() } },
+            onToday = { dayEpoch = LocalDate.now().toEpochDay() },
+            onToggleList = { listMode = !listMode },
+            onZoom = { zoom = if (zoom >= 4) 1 else zoom * 2 },
+        )
     }
 
     editing?.let { r -> RecordEditor(data, r) { editing = null } }
+    editingRunning?.let { r ->
+        val t = data.types.firstOrNull { it.id == r.typeId }
+        if (t == null) editingRunning = null else RunningEditor(t, r) { editingRunning = null }
+    }
 }
 
 @Composable
@@ -173,7 +234,7 @@ private fun RecordRow(t: ActivityType?, start: Long, end: Long, comment: String,
             )
             if (comment.isNotBlank()) Text(comment, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Text(fmtDur(end - start), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text(fmtDurSec(end - start), fontWeight = FontWeight.Bold, fontSize = 15.sp)
     }
 }
 

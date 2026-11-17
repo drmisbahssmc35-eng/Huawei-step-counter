@@ -288,7 +288,7 @@ private fun TypeEditor(initial: ActivityType, isNew: Boolean, onDismiss: () -> U
 }
 
 @Composable
-private fun RunningEditor(t: ActivityType, r: Running, onDismiss: () -> Unit) {
+internal fun RunningEditor(t: ActivityType, r: Running, onDismiss: () -> Unit) {
     var start by remember { mutableStateOf(r.start) }
     var comment by remember { mutableStateOf(r.comment) }
     val ctx = LocalContext.current

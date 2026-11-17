@@ -62,7 +62,7 @@ A second, separate app in this repo (`timetracker/` module): a simple time track
 | Screen | What it does |
 | --- | --- |
 | **Timers** | A grid of coloured activity tiles. Tap a tile to start its timer, tap again to stop and save a record. Running timers are shown at the top with a live clock. Hold a tile to edit its name, colour and emoji, change its position, or delete it. Hold a running timer to change its start time, add a comment, or discard it. |
-| **Records** | Records for any day, newest first, with gaps shown as "Untracked" (tap a gap to fill it). Tap a record to edit its activity, start, end and comment, or delete it. The + button adds a record by hand. |
+| **Records** | A day timeline from 00:00 to 24:00 with an hour scale: every activity is a coloured block as tall as its duration, showing its name, exact duration (1h 1m 48s) and start–end time. Overlapping timers sit side by side, a red line marks the current time, and empty gaps can be tapped to fill them. Tap a block to edit it. Swipe left or right, or use the day strip at the bottom, to change day. The ⋯ menu has Go to today, Pick a date, Zoom (1×, 2×, 4×) and a list view. |
 | **Statistics** | Day, week, month, year or all time. A donut chart, stacked bar chart (by hour, day or month), and time and percentage per activity, including untracked time. |
 | **Settings** | Allow several timers at once, show untracked time, notification with a Stop button, week start day. Save and restore a `.json` backup, export records to `.csv`, delete all records. |
 

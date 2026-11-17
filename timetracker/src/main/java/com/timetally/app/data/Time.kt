@@ -34,6 +34,22 @@ fun fmtDur(ms: Long): String {
     }
 }
 
+/** "1h 1m 48s", "59m 35s", "40s" — exact durations. */
+fun fmtDurSec(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+    return when {
+        h > 0 -> "${h}h ${m}m ${sec}s"
+        m > 0 -> "${m}m ${sec}s"
+        else -> "${sec}s"
+    }
+}
+
+/** "1:01:48 AM" or "01:01:48". */
+fun fmtClockSec(ms: Long, is24: Boolean): String =
+    DateTimeFormatter.ofPattern(if (is24) "HH:mm:ss" else "h:mm:ss a")
+        .format(Instant.ofEpochMilli(ms).atZone(zone))
+
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
 private val dayFmt = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
 fun fmtClock(ms: Long): String = hm.format(Instant.ofEpochMilli(ms).atZone(zone))
