@@ -83,6 +83,18 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Last skipped salat that broke the chain -->
+    <TextView
+        android:id="@+id/widget_break"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text=""
+        android:textColor="#FF8A8A"
+        android:textSize="11sp" />
+
     <!-- Bead string -->
     <ImageView
         android:id="@+id/widget_beads"

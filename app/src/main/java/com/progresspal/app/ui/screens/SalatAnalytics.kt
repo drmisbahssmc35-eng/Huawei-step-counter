@@ -138,6 +138,38 @@ fun SalatAnalytics(data: AppData) {
         }
     }
 
+    // ── Last skipped salat that broke the chain ──
+    stats.lastBreak?.let { b ->
+        AppCard(
+            Modifier.fillMaxWidth().padding(bottom = 10.dp), corner = 18.dp, padding = 14.dp,
+            borderColor = Pal.c.destructive.copy(alpha = .35f), background = Pal.c.destructive.copy(alpha = .06f),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("💔", fontSize = 24.sp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("LAST BREAK IN THE CHAIN", fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Medium, color = Pal.c.mutedForeground)
+                    Text(
+                        if (b.missed == 1) "Skipped ${b.last.second}" else "Skipped ${b.missed} salat in a row",
+                        fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Pal.c.destructive,
+                    )
+                    Text(
+                        if (b.missed == 1) b.last.first.format("EEEE, MMM d, yyyy")
+                        else "${b.first.second}, ${b.first.first.format("MMM d")} → ${b.last.second}, ${b.last.first.format("MMM d, yyyy")}",
+                        fontSize = 12.sp, color = Pal.c.foreground,
+                    )
+                    val days = java.time.temporal.ChronoUnit.DAYS.between(b.last.first, today).toInt()
+                    Text(
+                        (when (days) { 0 -> "Today"; 1 -> "Yesterday"; else -> "$days days ago" }) +
+                            (if (b.lostChain > 0) " · it broke a chain of ${b.lostChain} beads" else "") +
+                            (if (stats.current > 0) " · ${stats.current} beads since then 💪" else ""),
+                        fontSize = 11.sp, color = Pal.c.mutedForeground,
+                    )
+                }
+            }
+        }
+    }
+
     // ── Streak history chart: one bar per unbroken run; the longest is highlighted ──
     AppCard(Modifier.fillMaxWidth().padding(bottom = 10.dp), corner = 18.dp, padding = 12.dp) {
         SectionLabel("Streak history · prayers in a row", Icons.Filled.Timeline, Brand.purple)

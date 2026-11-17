@@ -13,6 +13,7 @@ import com.progresspal.app.data.AppStore
 import com.progresspal.app.data.dailyTasksFor
 import com.progresspal.app.data.BeadTier
 import com.progresspal.app.data.salatBeads
+import com.progresspal.app.data.describe
 import com.progresspal.app.ui.BeadRenderer
 import com.progresspal.app.data.salatStats
 import com.progresspal.app.data.today
@@ -119,6 +120,9 @@ class ProgressWidget : AppWidgetProvider() {
                         R.id.widget_days,
                         if (beads.cleanDays > 0) "${beads.cleanDays} day${if (beads.cleanDays == 1) "" else "s"} without missing a salat" else "",
                     )
+                    val brk = salat.lastBreak
+                    setTextViewText(R.id.widget_break, brk?.describe() ?: "")
+                    setViewVisibility(R.id.widget_break, if (brk != null) android.view.View.VISIBLE else android.view.View.GONE)
                     setTextViewText(R.id.widget_pill, if (isRecord) "NEW RECORD" else "BEST EVER")
                     setInt(R.id.widget_pill, "setBackgroundResource", if (isRecord) R.drawable.widget_pill_record else R.drawable.widget_pill_plain)
                     setTextColor(R.id.widget_pill, if (isRecord) 0xFF3D2200.toInt() else 0xFFD9DEE8.toInt())

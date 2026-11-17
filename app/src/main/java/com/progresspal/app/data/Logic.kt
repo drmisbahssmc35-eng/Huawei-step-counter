@@ -223,6 +223,19 @@ data class SalatStats(
     val perfectDays: Int,
     val todayCount: Int,
     val total: Int,
+    /** The most recent break in the chain (the skipped salat that reset the streak), if any. */
+    val lastBreak: ChainBreak? = null,
+)
+
+/**
+ * A gap of skipped prayers. [first]/[last] are the first and last prayer missed in a row;
+ * [lostChain] is how many beads the chain had when it broke.
+ */
+data class ChainBreak(
+    val first: Pair<LocalDate, String>,
+    val last: Pair<LocalDate, String>,
+    val missed: Int,
+    val lostChain: Int,
 )
 
 /** A day is "complete" when every prayer scheduled that day is ticked. */
@@ -242,6 +255,8 @@ fun AppData.salatStats(today: LocalDate = today()): SalatStats {
     val runs = mutableListOf<StreakRun>()
     var perfect = 0
     var count = 0
+    var gap = 0
+    var lastBreak: ChainBreak? = null
     var runStart: LocalDate? = null
     var runEnd: LocalDate? = null
     if (first != null) {
@@ -256,9 +271,16 @@ fun AppData.salatStats(today: LocalDate = today()): SalatStats {
                     if (count == 0) runStart = d
                     count++
                     runEnd = d
-                } else if (count > 0) {
-                    runs += StreakRun(runStart!!, runEnd!!, count)
-                    count = 0
+                    gap = 0
+                } else {
+                    val here = d to e.task.title
+                    lastBreak = if (gap == 0) ChainBreak(here, here, 1, count)
+                    else lastBreak!!.copy(last = here, missed = gap + 1)
+                    gap++
+                    if (count > 0) {
+                        runs += StreakRun(runStart!!, runEnd!!, count)
+                        count = 0
+                    }
                 }
             }
             d = d.plusDays(1)
@@ -273,6 +295,7 @@ fun AppData.salatStats(today: LocalDate = today()): SalatStats {
         longest = runs.maxWithOrNull(compareBy<StreakRun> { it.length }.thenBy { it.end }),
         runs = runs,
         perfectDays = perfect,
+        lastBreak = lastBreak,
         todayCount = todays.count { it.completed },
         total = todays.size,
     )
@@ -316,5 +339,20 @@ enum class BeadTier(val label: String, val min: Int) {
 
     companion object {
         fun of(streak: Int): BeadTier = entries.last { streak >= it.min }
+    }
+}
+
+/** One-line description of the last chain break, e.g. "💔 Chain broke at Esha · Sat, Nov 15 (2 days ago)". */
+fun ChainBreak.describe(today: LocalDate = today()): String {
+    fun ago(d: LocalDate): String = when (val n = java.time.temporal.ChronoUnit.DAYS.between(d, today).toInt()) {
+        0 -> "today"
+        1 -> "yesterday"
+        else -> "$n days ago"
+    }
+    val lost = if (lostChain > 0) " · lost a chain of $lostChain" else ""
+    return if (missed == 1) {
+        "💔 Chain broke at ${last.second} · ${last.first.format("EEE, MMM d")} (${ago(last.first)})$lost"
+    } else {
+        "💔 Last break: $missed salat missed · ${first.second} ${first.first.format("MMM d")} → ${last.second} ${last.first.format("MMM d")} (${ago(last.first)})$lost"
     }
 }
