@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutId="dictate"
+        android:shortcutLongLabel="@string/shortcut_long"
+        android:shortcutShortLabel="@string/shortcut_short">
+        <intent
+            android:action="com.voicetyper.app.DICTATE"
+            android:targetClass="com.voicetyper.app.MainActivity"
+            android:targetPackage="com.voicetyper.app" />
+    </shortcut>
+</shortcuts>

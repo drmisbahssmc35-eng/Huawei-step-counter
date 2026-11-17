@@ -13,3 +13,4 @@ download/
 
 # Fixed signing key so app updates install over older versions
 !app/progresspal-release.keystore
+!voice-typer/app/voicetyper.keystore
