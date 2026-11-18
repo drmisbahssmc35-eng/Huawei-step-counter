@@ -223,10 +223,8 @@ object SimpleTimeTracker {
     }
 
     /**
-     * Makes sure every activity has one Daily Task, without duplicates:
-     * an activity is paired with an existing task of the same name (ignoring case, spaces and a
-     * leading number such as "17."), otherwise a daily task is created. Renamed activities rename
-     * their task. A paired task the user deleted is not created again.
+     * Pairs every activity with the task of the same name (ignoring case, spaces and a leading
+     * number such as "17."). Nothing is created here: tasks are added from the suggestions.
      */
     private fun pairDailyTasks(c: SttCache): SttCache {
         val tasks = AppStore.data.value.projects.flatMap { it.tasks }
@@ -237,17 +235,12 @@ object SimpleTimeTracker {
             val key = normName(a.name)
             if (key.isEmpty() || !seen.add(key)) return@forEach
             val linkedId = links[a.id]
-            if (linkedId != null) {
-                val t = byId[linkedId] ?: return@forEach // deleted by the user: leave it deleted
-                if (normName(t.title) != key) {
-                    AppStore.data.value.projects.firstOrNull { p -> p.tasks.any { it.id == t.id } }?.let { p ->
-                        AppStore.editTask(p.id, t.id) { it.copy(title = a.name) }
-                    }
-                }
-                return@forEach
-            }
+            val linked = linkedId?.let { byId[it] }
+            // Still the same name → keep the pair; otherwise pair again by name below.
+            if (linked != null && normName(linked.title) == key) return@forEach
+            // Pair with a task of the same name (tasks are added by the user from the suggestions).
             val existing = tasks.firstOrNull { normName(it.title) == key && it.id !in links.values }
-            links[a.id] = existing?.id ?: AppStore.addDailyTask(a.name)
+            if (existing != null) links[a.id] = existing.id else links.remove(a.id)
         }
         return c.copy(linkedTasks = links)
     }
@@ -290,6 +283,13 @@ object SimpleTimeTracker {
     fun setAutoCompleteMinutes(m: Int) {
         save(_cache.value.copy(autoCompleteMinutes = m))
         if (m > 0) syncSoon(7)
+    }
+
+    /** Activities that have no task with the same name yet — offered as Daily Task suggestions. */
+    fun suggestions(): List<SttActivity> {
+        val have = AppStore.data.value.projects.flatMap { it.tasks }.map { normName(it.title) }.toSet()
+        return _cache.value.activities.filter { normName(it.name).isNotEmpty() && normName(it.name) !in have }
+            .distinctBy { normName(it.name) }
     }
 
     /** Daily tasks that have no activity in Simple Time Tracker yet. */

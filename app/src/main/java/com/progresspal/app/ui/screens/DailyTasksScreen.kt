@@ -1,6 +1,10 @@
 package com.progresspal.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,6 +106,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
             if (effective == Repeat.CUSTOM) days else null,
         )
         title = ""; dueTime = LocalTime.NOON; days = emptyList()
+        com.progresspal.app.data.SimpleTimeTracker.syncSoon(1) // pair it with its activity
     }
 
     Screen {
@@ -149,6 +154,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                     Spacer(Modifier.height(8.dp))
                     DayChips(days) { d -> days = if (d in days) days - d else days + d }
                 }
+                SttSuggestions(data, title) { title = it }
             }
         }
 
@@ -259,4 +265,47 @@ fun ChoiceDialog(title: String, onDismiss: () -> Unit, first: Choice, second: Ch
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Simple Time Tracker activities that are not a task yet: tap one to fill in the task name. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SttSuggestions(data: AppData, typed: String, onPick: (String) -> Unit) {
+    val stt by com.progresspal.app.data.SimpleTimeTracker.cache.collectAsStateWithLifecycle()
+    var showAll by remember { mutableStateOf(false) }
+    val all = remember(stt.activities, data) { com.progresspal.app.data.SimpleTimeTracker.suggestions() }
+    if (all.isEmpty()) return
+    val q = typed.trim()
+    val list = if (q.isEmpty()) all else all.filter { it.name.contains(q, ignoreCase = true) }
+    if (list.isEmpty()) return
+    val shown = if (showAll || q.isNotEmpty()) list else list.take(10)
+    Spacer(Modifier.height(10.dp))
+    Text("Suggestions from Simple Time Tracker", fontSize = 12.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.Medium)
+    Spacer(Modifier.height(6.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        shown.forEach { a ->
+            val c = androidx.compose.ui.graphics.Color(a.color.toInt())
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(c.copy(alpha = .15f))
+                    .border(1.dp, c.copy(alpha = .5f), RoundedCornerShape(50))
+                    .clickable { onPick(a.name) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(8.dp).background(c, androidx.compose.foundation.shape.CircleShape))
+                Spacer(Modifier.width(6.dp))
+                Text(a.name, fontSize = 13.sp, color = Pal.c.foreground, maxLines = 1)
+            }
+        }
+        if (!showAll && q.isEmpty() && list.size > shown.size) {
+            Text(
+                "+${list.size - shown.size} more",
+                Modifier.clip(RoundedCornerShape(50)).background(Pal.c.muted).clickable { showAll = true }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                fontSize = 13.sp, color = Pal.c.primary,
+            )
+        }
+    }
 }

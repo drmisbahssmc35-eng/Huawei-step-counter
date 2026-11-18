@@ -233,7 +233,7 @@ private fun TimersTab(cache: SttCache) {
                     Column(Modifier.weight(1f)) {
                         Text("Sync Daily Tasks", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(
-                            "Every activity here is kept as one Daily Task (no duplicates)",
+                            "Pairs Daily Tasks with activities of the same name. Add them from the suggestions in Daily Tasks.",
                             color = Pal.c.mutedForeground, fontSize = 12.sp,
                         )
                     }
