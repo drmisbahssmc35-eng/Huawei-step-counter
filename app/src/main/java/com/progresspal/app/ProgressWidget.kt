@@ -64,6 +64,7 @@ class ProgressWidget : AppWidgetProvider() {
 
         /** Re-draws every placed widget with the latest data. Safe to call often. */
         fun refresh(context: Context) {
+            DayWidget.refresh(context)
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, ProgressWidget::class.java))
             if (ids.isNotEmpty()) render(context, manager, ids)

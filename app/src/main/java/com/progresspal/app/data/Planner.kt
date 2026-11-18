@@ -53,8 +53,11 @@ object Planner {
     private val _data = MutableStateFlow(PlannerData())
     val data: StateFlow<PlannerData> = _data
 
+    private var appContext: Context? = null
+
     fun init(context: Context) {
         if (::file.isInitialized) return
+        appContext = context.applicationContext
         file = File(context.applicationContext.filesDir, "planner.json")
         if (file.exists()) runCatching { _data.value = json.decodeFromString<PlannerData>(file.readText()) }
     }
@@ -63,6 +66,7 @@ object Planner {
         val next = f(_data.value)
         _data.value = next
         if (::file.isInitialized) runCatching { file.writeText(json.encodeToString(next)) }
+        appContext?.let { com.progresspal.app.DayWidget.refresh(it) }
     }
 
     fun setEnabled(on: Boolean) = update { it.copy(enabled = on) }

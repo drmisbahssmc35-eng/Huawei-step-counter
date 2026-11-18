@@ -52,7 +52,12 @@ import com.progresspal.app.ui.theme.Pal
 import com.progresspal.app.ui.theme.ProgressPalTheme
 import java.time.LocalDate
 
+/** A screen the app should open (e.g. from the Day widget). */
+val pendingRoute = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_OPEN = "open" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -61,6 +66,7 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.Planner.init(applicationContext)
         com.progresspal.app.data.DailyOrder.init(applicationContext)
         handleAuth(intent)
+        intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         setContent {
             ProgressPalTheme {
                 App()
@@ -71,6 +77,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleAuth(intent)
+        intent.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
     }
 
     private fun handleAuth(intent: android.content.Intent?) {
@@ -99,6 +106,10 @@ fun App() {
     val openProject: (String) -> Unit = { nav.navigate("project/$it") }
 
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+    val route by pendingRoute.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(route) {
+        route?.let { nav.navigate(it) { launchSingleTop = true }; pendingRoute.value = null }
+    }
     NavHost(nav, startDestination = "home") {
         composable("home") {
             HomeScreen(

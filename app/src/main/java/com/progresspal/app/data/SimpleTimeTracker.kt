@@ -220,6 +220,7 @@ object SimpleTimeTracker {
 
     private fun save(c: SttCache) {
         _cache.value = c
+        if (::appContext.isInitialized) com.progresspal.app.DayWidget.refresh(appContext)
         runCatching { file.writeText(json.encodeToString(c)) }
     }
 
