@@ -147,7 +147,7 @@ fun TimeTrackerScreen(app: AppData, onBack: () -> Unit) {
         StatusBanner(status)
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Timers", "Timeline", "Stats").forEachIndexed { i, label ->
+            listOf("Timeline", "Timers", "Stats").forEachIndexed { i, label ->
                 val sel = i == tab
                 Text(
                     label,
@@ -162,8 +162,8 @@ fun TimeTrackerScreen(app: AppData, onBack: () -> Unit) {
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                0 -> TimersTab(cache)
-                1 -> TimelineTab(cache, app, dayEpoch, onOpenTimers = { tab = 0 }) { dayEpoch = it }
+                0 -> TimelineTab(cache, app, dayEpoch, onOpenTimers = { tab = 1 }) { dayEpoch = it }
+                1 -> TimersTab(cache)
                 else -> StatsTab(cache)
             }
         }
@@ -298,9 +298,17 @@ private fun TimersTab(cache: SttCache) {
                         }
                     }
                 }
-                if (cache.syncDailyTasks && missing.isNotEmpty() && cache.activities.isNotEmpty()) {
+                var showMissing by remember { mutableStateOf(false) }
+                if (cache.syncDailyTasks && missing.isNotEmpty() && cache.activities.isNotEmpty()) TextButton(onClick = { showMissing = !showMissing }) {
                     Text(
-                        "Not in Simple Time Tracker yet: " + missing.joinToString(", ") +
+                        "${missing.size} Daily Task${if (missing.size == 1) " has" else "s have"} no activity in Simple Time Tracker " +
+                            if (showMissing) "▲" else "▼",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                }
+                if (showMissing && cache.syncDailyTasks && missing.isNotEmpty() && cache.activities.isNotEmpty()) {
+                    Text(
+                        missing.joinToString(", ") +
                             ". Simple Time Tracker doesn't let other apps create activities — add them there with the same name and they will pair automatically.",
                         color = Pal.c.mutedForeground, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),
                     )
