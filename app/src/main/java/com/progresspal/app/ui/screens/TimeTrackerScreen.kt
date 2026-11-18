@@ -75,6 +75,7 @@ import com.progresspal.app.data.SttCache
 import com.progresspal.app.data.SttRecord
 import com.progresspal.app.data.SttStatus
 import com.progresspal.app.ui.components.rememberNow
+import com.progresspal.app.ui.components.SttIcon
 import com.progresspal.app.ui.components.toast
 import com.progresspal.app.ui.components.TLItem
 import com.progresspal.app.ui.components.ZoomTimeline
@@ -147,7 +148,7 @@ fun TimeTrackerScreen(app: AppData, onBack: () -> Unit) {
         StatusBanner(status)
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Timeline", "Timers", "Stats").forEachIndexed { i, label ->
+            listOf("Timeline", "Activity List", "Stats").forEachIndexed { i, label ->
                 val sel = i == tab
                 Text(
                     label,
@@ -214,25 +215,23 @@ private fun TimersTab(cache: SttCache) {
         items(cache.activities, key = { it.id }) { a ->
             val run = cache.running.firstOrNull { it.id == a.id }
             val c = a.color.asColor()
-            val fg = contentOn(c)
+            val fg = Color.White // Simple Time Tracker always uses white on the activity colour
             val shape = RoundedCornerShape(8.dp)
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .height(58.dp)
+                    .height(54.dp)
                     .clip(shape)
                     .background(c)
                     .then(if (run != null) Modifier.border(3.dp, Color.White, shape) else Modifier)
                     .clickable { SimpleTimeTracker.tap(a) }
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(36.dp).background(fg.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text(iconText(a.icon, a.name), fontSize = 18.sp, color = fg, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.width(14.dp))
+                SttIcon(a.icon, a.name, fg, 34.dp)
+                Spacer(Modifier.width(18.dp))
                 Text(
-                    a.name, Modifier.weight(1f), color = fg, fontWeight = FontWeight.SemiBold, fontSize = 17.sp,
+                    a.name, Modifier.weight(1f), color = fg, fontWeight = FontWeight.Bold, fontSize = 17.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (run != null) {
