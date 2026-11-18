@@ -219,6 +219,36 @@ private fun TimersTab(cache: SttCache) {
                 Switch(checked = cache.switchMode, onCheckedChange = { SimpleTimeTracker.setSwitchMode(it) })
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            val ctx = LocalContext.current
+            val missing = remember(cache.activities, cache.linkedTasks) { SimpleTimeTracker.dailyTasksMissingInStt() }
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { SimpleTimeTracker.setSyncDailyTasks(!cache.syncDailyTasks) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Sync Daily Tasks", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            "Every activity here is kept as one Daily Task (no duplicates)",
+                            color = Pal.c.mutedForeground, fontSize = 12.sp,
+                        )
+                    }
+                    Switch(checked = cache.syncDailyTasks, onCheckedChange = { SimpleTimeTracker.setSyncDailyTasks(it) })
+                }
+                if (cache.syncDailyTasks && missing.isNotEmpty() && cache.activities.isNotEmpty()) {
+                    Text(
+                        "Not in Simple Time Tracker yet: " + missing.joinToString(", ") +
+                            ". Simple Time Tracker doesn't let other apps create activities — add them there with the same name and they will pair automatically.",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    TextButton(onClick = { SimpleTimeTracker.openApp(ctx) }) { Text("Open Simple Time Tracker") }
+                }
+            }
+        }
         items(cache.running, key = { "run-${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { r ->
             val a = byId[r.id] ?: return@items
             val bg = a.color.asColor(); val fg = contentOn(bg)

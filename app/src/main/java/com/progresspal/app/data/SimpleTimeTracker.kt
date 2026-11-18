@@ -60,6 +60,10 @@ data class SttCache(
     val switchMode: Boolean = true,
     /** Records hidden in Progress Pal (Simple Time Tracker does not let other apps delete them). */
     val hidden: List<Long> = emptyList(),
+    /** Keep a Daily Task for every Simple Time Tracker activity. */
+    val syncDailyTasks: Boolean = true,
+    /** Simple Time Tracker activity id → Progress Pal task id it is paired with. */
+    val linkedTasks: Map<Long, String> = emptyMap(),
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -153,6 +157,7 @@ object SimpleTimeTracker {
                 val acts = ask(QUERY_ACTIVITIES, RESP_ACTIVITIES) { putExtra("extra_answer_type", "json") }
                 if (acts == null) { _status.value = SttStatus.NO_ANSWER; return@withLock }
                 runCatching { c = c.copy(activities = json.decodeFromString<List<SttActivity>>(acts)) }
+                if (c.syncDailyTasks) c = withContext(Dispatchers.Main) { pairDailyTasks(c) }
             }
             ask(QUERY_RUNNING, RESP_RUNNING) { putExtra("extra_answer_type", "json") }?.let { r ->
                 runCatching { c = c.copy(running = json.decodeFromString<List<SttRunning>>(r)) }
@@ -207,6 +212,49 @@ object SimpleTimeTracker {
         save(c.copy(hidden = c.hidden + id, days = c.days.mapValues { (_, l) -> l.filterNot { it.id == id } }))
     }
 
+    /**
+     * Makes sure every activity has one Daily Task, without duplicates:
+     * an activity is paired with an existing task of the same name (ignoring case, spaces and a
+     * leading number such as "17."), otherwise a daily task is created. Renamed activities rename
+     * their task. A paired task the user deleted is not created again.
+     */
+    private fun pairDailyTasks(c: SttCache): SttCache {
+        val tasks = AppStore.data.value.projects.flatMap { it.tasks }
+        val byId = tasks.associateBy { it.id }
+        val links = c.linkedTasks.toMutableMap()
+        val seen = mutableSetOf<String>()
+        c.activities.forEach { a ->
+            val key = normName(a.name)
+            if (key.isEmpty() || !seen.add(key)) return@forEach
+            val linkedId = links[a.id]
+            if (linkedId != null) {
+                val t = byId[linkedId] ?: return@forEach // deleted by the user: leave it deleted
+                if (normName(t.title) != key) {
+                    AppStore.data.value.projects.firstOrNull { p -> p.tasks.any { it.id == t.id } }?.let { p ->
+                        AppStore.editTask(p.id, t.id) { it.copy(title = a.name) }
+                    }
+                }
+                return@forEach
+            }
+            val existing = tasks.firstOrNull { normName(it.title) == key && it.id !in links.values }
+            links[a.id] = existing?.id ?: AppStore.addDailyTask(a.name)
+        }
+        return c.copy(linkedTasks = links)
+    }
+
+    /** Daily tasks that have no activity in Simple Time Tracker yet. */
+    fun dailyTasksMissingInStt(): List<String> {
+        val c = _cache.value
+        val names = c.activities.map { normName(it.name) }.toSet()
+        val daily = AppStore.data.value.projects.firstOrNull { it.name == "Daily Tasks" } ?: return emptyList()
+        return daily.tasks.filter { it.repeat.isRecurring && normName(it.title) !in names }.map { it.title }.distinct()
+    }
+
+    fun setSyncDailyTasks(on: Boolean) {
+        save(_cache.value.copy(syncDailyTasks = on))
+        if (on) syncSoon(1)
+    }
+
     fun setSwitchMode(on: Boolean) = save(_cache.value.copy(switchMode = on))
 
     /**
@@ -233,3 +281,7 @@ object SimpleTimeTracker {
         scope.launch { delay(900); sync(days = 1) }
     }
 }
+
+/** "17. Sleep " → "sleep": compares names ignoring case, extra spaces and a leading number. */
+fun normName(s: String): String =
+    s.trim().lowercase().replace(Regex("^\\d+\\s*[.)\\-:]?\\s*"), "").replace(Regex("\\s+"), " ")
