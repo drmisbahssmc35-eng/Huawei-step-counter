@@ -239,6 +239,22 @@ private fun TimersTab(cache: SttCache) {
                     }
                     Switch(checked = cache.syncDailyTasks, onCheckedChange = { SimpleTimeTracker.setSyncDailyTasks(it) })
                 }
+                if (cache.syncDailyTasks) {
+                    Text("Tick the Daily Task when tracked for at least", color = Pal.c.foreground, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                    Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(1, 5, 15, 30, 0).forEach { m ->
+                            val sel = cache.autoCompleteMinutes == m
+                            Text(
+                                if (m == 0) "Off" else "${m}m",
+                                Modifier.clip(RoundedCornerShape(50))
+                                    .background(if (sel) Pal.c.primary else Pal.c.card)
+                                    .clickable { SimpleTimeTracker.setAutoCompleteMinutes(m) }
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                                color = if (sel) Color.White else Pal.c.foreground, fontSize = 13.sp,
+                            )
+                        }
+                    }
+                }
                 if (cache.syncDailyTasks && missing.isNotEmpty() && cache.activities.isNotEmpty()) {
                     Text(
                         "Not in Simple Time Tracker yet: " + missing.joinToString(", ") +

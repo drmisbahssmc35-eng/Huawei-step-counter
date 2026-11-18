@@ -64,6 +64,10 @@ data class SttCache(
     val syncDailyTasks: Boolean = true,
     /** Simple Time Tracker activity id → Progress Pal task id it is paired with. */
     val linkedTasks: Map<Long, String> = emptyMap(),
+    /** Tick the paired Daily Task once its activity was tracked this many minutes that day (0 = off). */
+    val autoCompleteMinutes: Int = 1,
+    /** "taskId:yyyy-MM-dd" already ticked automatically, so a manual un-tick is respected. */
+    val autoDone: List<String> = emptyList(),
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -164,16 +168,22 @@ object SimpleTimeTracker {
             }
             val today = LocalDate.now()
             val days2 = c.days.toMutableMap()
+            val syncedDates = mutableListOf<LocalDate>()
             var answered = false
             for (k in 0 until days) {
                 val shift = fromShift - k
                 val data = ask(QUERY_RECORDS, RESP_RECORDS) { putExtra("extra_shift", shift) } ?: break
                 answered = true
                 val list = runCatching { json.decodeFromString<List<SttRecord>>(data) }.getOrNull() ?: continue
+                syncedDates += today.plusDays(shift.toLong())
                 days2[today.plusDays(shift.toLong()).toString()] =
                     list.filter { it.type == "TRACKED" && it.id !in c.hidden }.sortedBy { it.startedAt }
             }
             c = c.copy(days = days2, lastSync = System.currentTimeMillis())
+            if (c.syncDailyTasks && c.autoCompleteMinutes > 0 && syncedDates.isNotEmpty()) {
+                val snapshot = c
+                c = withContext(Dispatchers.Main) { autoComplete(snapshot, syncedDates) }
+            }
             save(c)
             _status.value = if (answered || !withActivities) SttStatus.OK else SttStatus.NO_ANSWER
         } finally {
@@ -240,6 +250,46 @@ object SimpleTimeTracker {
             links[a.id] = existing?.id ?: AppStore.addDailyTask(a.name)
         }
         return c.copy(linkedTasks = links)
+    }
+
+    /** Ticks the paired Daily Task on each day its activity was tracked long enough. */
+    private fun autoComplete(c: SttCache, dates: List<LocalDate>): SttCache {
+        val minMs = c.autoCompleteMinutes * 60_000L
+        val done = c.autoDone.toMutableSet()
+        val today = LocalDate.now()
+        val now = System.currentTimeMillis()
+        val zone = java.time.ZoneId.systemDefault()
+        dates.forEach { date ->
+            val totals = HashMap<Long, Long>()
+            c.days[date.toString()].orEmpty().forEach { r ->
+                val id = r.activityId ?: return@forEach
+                totals[id] = (totals[id] ?: 0L) + (r.endedAt - r.startedAt)
+            }
+            if (date == today) {
+                val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+                c.running.forEach { r -> totals[r.id] = (totals[r.id] ?: 0L) + (now - maxOf(r.startedAt, dayStart)) }
+            }
+            totals.forEach { (activityId, ms) ->
+                if (ms < minMs) return@forEach
+                val taskId = c.linkedTasks[activityId] ?: return@forEach
+                val key = "$taskId:$date"
+                if (key in done) return@forEach
+                val project = AppStore.data.value.projects.firstOrNull { p -> p.tasks.any { it.id == taskId } } ?: return@forEach
+                val task = project.tasks.first { it.id == taskId }
+                if (task.repeat.isRecurring) AppStore.setDateTask(taskId, date, true)
+                else if (date == today && !task.completed) AppStore.toggleTask(project.id, taskId)
+                else return@forEach
+                done += key
+            }
+        }
+        // Forget entries older than 60 days.
+        val cutoff = today.minusDays(60).toString()
+        return c.copy(autoDone = done.filter { it.substringAfterLast(':') >= cutoff })
+    }
+
+    fun setAutoCompleteMinutes(m: Int) {
+        save(_cache.value.copy(autoCompleteMinutes = m))
+        if (m > 0) syncSoon(7)
     }
 
     /** Daily tasks that have no activity in Simple Time Tracker yet. */
