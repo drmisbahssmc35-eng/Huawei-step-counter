@@ -47,6 +47,15 @@ class DayWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        if (intent.action == ACTION_CTRL) {
+            initData(context)
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
+            if (id >= 0) {
+                control(context, id, intent.getStringExtra(EXTRA_CMD) ?: "")
+                render(context, AppWidgetManager.getInstance(context), intArrayOf(id))
+            }
+            return
+        }
         if (intent.action != AppWidgetManager.ACTION_APPWIDGET_UPDATE &&
             intent.action != AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED
         ) {
@@ -58,6 +67,63 @@ class DayWidget : AppWidgetProvider() {
 
     companion object {
         private const val ACTION_TICK = "com.progresspal.app.DAY_WIDGET_TICK"
+        private const val ACTION_CTRL = "com.progresspal.app.DAY_WIDGET_CTRL"
+        private const val EXTRA_CMD = "cmd"
+        private const val DAY_MIN = 24 * 60
+        private const val MIN_SPAN = 1 // minute — zoom in as far as one minute
+
+        private fun prefs(context: Context) = context.getSharedPreferences("day_widget", Context.MODE_PRIVATE)
+
+        /** Visible window for a widget: (start ms, span minutes). Default = the whole of today. */
+        private fun window(context: Context, id: Int, now: Long): Pair<Long, Int> {
+            val p = prefs(context)
+            val span = p.getInt("span_$id", DAY_MIN).coerceIn(MIN_SPAN, DAY_MIN)
+            val start = p.getLong("start_$id", -1L)
+            val dayStart = LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            return when {
+                start >= 0 -> start to span
+                span >= DAY_MIN -> dayStart to DAY_MIN
+                else -> (now - span * 60_000L / 3) to span // follow "now", a third from the top
+            }
+        }
+
+        /** Zoom (+ / −), move (▲ / ▼) or back to now. */
+        private fun control(context: Context, id: Int, cmd: String) {
+            val now = System.currentTimeMillis()
+            val (start, span) = window(context, id, now)
+            val center = start + span * 30_000L
+            val e = prefs(context).edit()
+            when (cmd) {
+                "in" -> {
+                    val ns = (span / 2).coerceAtLeast(MIN_SPAN)
+                    e.putInt("span_$id", ns)
+                    if (prefs(context).getLong("start_$id", -1L) >= 0) e.putLong("start_$id", center - ns * 30_000L)
+                }
+                "out" -> {
+                    val ns = (span * 2).coerceAtMost(DAY_MIN)
+                    e.putInt("span_$id", ns)
+                    if (ns >= DAY_MIN) e.putLong("start_$id", -1L)
+                    else if (prefs(context).getLong("start_$id", -1L) >= 0) e.putLong("start_$id", center - ns * 30_000L)
+                }
+                "up" -> e.putLong("start_$id", start - span * 30_000L)   // half a window earlier
+                "down" -> e.putLong("start_$id", start + span * 30_000L) // half a window later
+                "now" -> { e.putLong("start_$id", -1L) }
+            }
+            e.apply()
+        }
+
+        private fun ctrlIntent(context: Context, id: Int, cmd: String, code: Int): PendingIntent = PendingIntent.getBroadcast(
+            context, id * 10 + code,
+            Intent(context, DayWidget::class.java).setAction(ACTION_CTRL)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id).putExtra(EXTRA_CMD, cmd),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        private fun spanLabel(m: Int): String = when {
+            m >= 60 && m % 60 == 0 -> "${m / 60}h"
+            m >= 60 -> "${m / 60}h ${m % 60}m"
+            else -> "${m}m"
+        }
 
         private fun initData(context: Context) {
             val app = context.applicationContext
@@ -120,7 +186,17 @@ class DayWidget : AppWidgetProvider() {
                 // Whatever height is left under the header and beads goes to the timeline.
                 val usedPx = ((20 + 50 + 20 + 6) * density).toInt() + beadBmp.height
                 val tlH = ((hDp * density).toInt() - usedPx).coerceIn((120 * density).toInt(), dm.heightPixels)
-                val tl = TimelineRenderer.render(innerW, tlH, density, stt, planner, planner.enabled)
+                val now = System.currentTimeMillis()
+                val (wStart, span) = window(context, id, now)
+                val wEnd = wStart + span * 60_000L
+                val tlH2 = (tlH - (34 * density).toInt()).coerceAtLeast((100 * density).toInt()) // room for the zoom buttons
+                val tl = TimelineRenderer.render(innerW, tlH2, density, stt, planner, planner.enabled, now, wStart, wEnd)
+                val z = java.time.ZoneId.systemDefault()
+                val hm = DateTimeFormatter.ofPattern("h:mm a")
+                val windowText = if (span >= DAY_MIN && prefs(context).getLong("start_$id", -1L) < 0) "Whole day · tap + to zoom"
+                else "${spanLabel(span)} · " + hm.format(java.time.Instant.ofEpochMilli(wStart).atZone(z)).lowercase() +
+                    " – " + hm.format(java.time.Instant.ofEpochMilli(wEnd).atZone(z)).lowercase() +
+                    java.time.Instant.ofEpochMilli(wStart).atZone(z).toLocalDate().let { d -> if (d == today) "" else " · " + d.format(DateTimeFormatter.ofPattern("EEE d MMM")) }
 
                 val streak = salat.current
                 val views = RemoteViews(context.packageName, R.layout.widget_day).apply {
@@ -138,6 +214,12 @@ class DayWidget : AppWidgetProvider() {
                     setImageViewBitmap(R.id.day_beads, beadBmp)
                     setImageViewBitmap(R.id.day_timeline, tl)
                     setOnClickPendingIntent(R.id.day_root, open)
+                    setTextViewText(R.id.day_window, windowText)
+                    setOnClickPendingIntent(R.id.day_zoom_in, ctrlIntent(context, id, "in", 1))
+                    setOnClickPendingIntent(R.id.day_zoom_out, ctrlIntent(context, id, "out", 2))
+                    setOnClickPendingIntent(R.id.day_up, ctrlIntent(context, id, "up", 3))
+                    setOnClickPendingIntent(R.id.day_down, ctrlIntent(context, id, "down", 4))
+                    setOnClickPendingIntent(R.id.day_now, ctrlIntent(context, id, "now", 5))
                 }
                 manager.updateAppWidget(id, views)
             }

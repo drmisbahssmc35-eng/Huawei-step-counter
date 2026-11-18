@@ -23,14 +23,23 @@ import kotlin.math.min
 object TimelineRenderer {
     private data class Item(val start: Long, val end: Long, val color: Int, val title: String, val right: String, val badge: String, val alpha: Int, val outlined: Boolean)
 
-    fun render(widthPx: Int, heightPx: Int, density: Float, stt: SttCache, planner: PlannerData, showPlanner: Boolean, now: Long = System.currentTimeMillis()): Bitmap {
+    /**
+     * Draws the window [from, to) — the whole day by default, or a zoomed slice of it
+     * (down to a minute) chosen with the widget's zoom buttons.
+     */
+    fun render(
+        widthPx: Int, heightPx: Int, density: Float, stt: SttCache, planner: PlannerData, showPlanner: Boolean,
+        now: Long = System.currentTimeMillis(),
+        from: Long = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        to: Long = from + 24 * 3_600_000L,
+    ): Bitmap {
         val w = max(1, widthPx); val h = max(1, heightPx)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val zone = ZoneId.systemDefault()
-        val day = LocalDate.now()
-        val from = day.atStartOfDay(zone).toInstant().toEpochMilli()
-        val to = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        // Days touched by the window (it may cross midnight).
+        val days = generateSequence(java.time.Instant.ofEpochMilli(from).atZone(zone).toLocalDate()) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(java.time.Instant.ofEpochMilli(to - 1).atZone(zone).toLocalDate()) }.toList()
 
         val axis = 40 * density
         val pad = 6 * density
@@ -42,18 +51,22 @@ object TimelineRenderer {
         val cols = if (showPlanner) 2 else 1
         val colW = (areaR - areaL) / cols
 
-        // Hour grid + labels.
+        // Grid + labels: pick a step so lines stay ~22dp apart (3h … 1min).
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF; strokeWidth = density * 0.8f }
+        val strong = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x55FFFFFF; strokeWidth = density }
         val label = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99FFFFFF.toInt(); textSize = 9.5f * density }
-        val hourPx = (bottom - top) / 24f
-        val every = when { hourPx >= 16 * density -> 1; hourPx >= 8 * density -> 2; else -> 3 }
-        for (hr in 0..24) {
-            val yy = top + hr * hourPx
-            c.drawLine(areaL, yy, areaR, yy, line)
-            if (hr % every == 0) {
-                val t = when { hr % 24 == 0 -> "12a"; hr < 12 -> "${hr}a"; hr == 12 -> "12p"; else -> "${hr - 12}p" }
-                c.drawText(t, areaR + 4 * density, min(yy + label.textSize / 3, bottom), label)
-            }
+        val stepMin = listOf(1, 2, 5, 10, 15, 30, 60, 120, 180).firstOrNull { it * 60_000L * pxPerMs >= 22 * density } ?: 180
+        val stepMs = stepMin * 60_000L
+        val dayStart0 = days.first().atStartOfDay(zone).toInstant().toEpochMilli()
+        var t = dayStart0 + ((from - dayStart0 + stepMs - 1) / stepMs) * stepMs
+        val fmt = java.time.format.DateTimeFormatter.ofPattern(if (stepMin >= 60) "ha" else "h:mm")
+        while (t <= to) {
+            val yy = y(t)
+            val onHour = java.time.Instant.ofEpochMilli(t).atZone(zone).minute == 0
+            c.drawLine(areaL, yy, areaR, yy, if (onHour) strong else line)
+            val txt = fmt.format(java.time.Instant.ofEpochMilli(t).atZone(zone)).lowercase()
+            c.drawText(txt, areaR + 4 * density, min(max(yy + label.textSize / 3, top + label.textSize), bottom), label)
+            t += stepMs
         }
         if (showPlanner) {
             val div = Paint().apply { color = 0x55FFFFFF; strokeWidth = density }
@@ -63,20 +76,20 @@ object TimelineRenderer {
         // Actual: finished records + running timers.
         val acts = stt.activities.associateBy { it.id }
         val actual = mutableListOf<Item>()
-        stt.days[day.toString()].orEmpty().forEach { r ->
+        days.flatMap { stt.days[it.toString()].orEmpty() }.filter { it.endedAt > from && it.startedAt < to }.forEach { r ->
             val a = r.activityId?.let { acts[it] }
             actual += Item(max(r.startedAt, from), min(r.endedAt, to), (a?.color ?: r.activityColor ?: 0xFF888888).toInt(),
                 a?.name ?: r.activityName ?: "?", dur(r.endedAt - r.startedAt), "", 255, false)
         }
         stt.running.forEach { r ->
             val a = acts[r.id] ?: return@forEach
-            if (r.startedAt < to) actual += Item(max(r.startedAt, from), min(now, to), a.color.toInt(), a.name, "▶ " + dur(now - r.startedAt), "", 255, false)
+            if (r.startedAt < to && now > from) actual += Item(max(r.startedAt, from), min(now, to), a.color.toInt(), a.name, "▶ " + dur(now - r.startedAt), "", 255, false)
         }
         drawColumn(c, actual, areaL, colW, ::y, density)
 
         // Planner.
         if (showPlanner) {
-            val plans = occurrencesOn(planner, day).map { p ->
+            val plans = days.flatMap { occurrencesOn(planner, it) }.filter { it.end > from && it.start < to }.map { p ->
                 val (st, share) = planState(p, stt, now)
                 Item(
                     max(p.start, from), min(p.end, to), (p.color ?: 0xFF5B8DEF).toInt(), p.title,
