@@ -1,4 +1,9 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.progresspal.app.ui.components
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -92,6 +97,8 @@ fun ZoomTimeline(
     columns: List<String> = emptyList(),
     /** Tap on empty space in a column: (column, time). */
     onEmptyTap: ((Int, Long) -> Unit)? = null,
+    /** Double tap on a block. */
+    onItemDoubleTap: ((TLItem) -> Unit)? = null,
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableFloatStateOf(0f) }
@@ -239,7 +246,10 @@ fun ZoomTimeline(
                             .clip(shape)
                             .background(fill)
                             .then(if (b.outlined) Modifier.border(2.dp, b.color, shape) else Modifier)
-                            .clickable { onItem(b) }
+                            .combinedClickable(
+                                onClick = { onItem(b) },
+                                onDoubleClick = if (onItemDoubleTap != null && b.column == 1) ({ onItemDoubleTap(b) }) else null,
+                            )
                             .padding(horizontal = 8.dp, vertical = if (hDp > 26) 4.dp else 0.dp),
                     ) {
                         if (b.badge.isNotEmpty() && hDp >= 12) Text(

@@ -56,6 +56,8 @@ data class SttCache(
     /** "yyyy-MM-dd" → finished records of that day. */
     val days: Map<String, List<SttRecord>> = emptyMap(),
     val lastSync: Long = 0,
+    /** Starting an activity from Progress Pal stops the one that is running ("switch"). */
+    val switchMode: Boolean = true,
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -196,6 +198,26 @@ object SimpleTimeTracker {
         )
         scope.launch { delay(900); sync(days = 1) }
     }
+
+    fun setSwitchMode(on: Boolean) = save(_cache.value.copy(switchMode = on))
+
+    /**
+     * Start [a] in Simple Time Tracker. In switch mode the running activities are stopped first.
+     * Does nothing if [a] is already running.
+     */
+    fun start(a: SttActivity) {
+        if (isRunning(a.id)) return
+        val c = _cache.value
+        val switching = c.switchMode && c.running.isNotEmpty()
+        if (switching) appContext.sendBroadcast(command(STOP_ALL))
+        appContext.sendBroadcast(command(START).putExtra("extra_activity_name", a.name))
+        val now = System.currentTimeMillis()
+        save(c.copy(running = (if (switching) emptyList() else c.running) + SttRunning(a.id, now)))
+        scope.launch { delay(900); sync(days = 1) }
+    }
+
+    /** Tile tap: stop if running, otherwise start (switching if switch mode is on). */
+    fun tap(a: SttActivity) = if (isRunning(a.id)) toggle(a) else start(a)
 
     fun stopAll() {
         appContext.sendBroadcast(command(STOP_ALL))

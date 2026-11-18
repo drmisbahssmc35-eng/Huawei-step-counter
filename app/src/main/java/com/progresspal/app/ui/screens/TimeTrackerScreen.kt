@@ -74,6 +74,7 @@ import com.progresspal.app.data.SttCache
 import com.progresspal.app.data.SttRecord
 import com.progresspal.app.data.SttStatus
 import com.progresspal.app.ui.components.rememberNow
+import com.progresspal.app.ui.components.toast
 import com.progresspal.app.ui.components.TLItem
 import com.progresspal.app.ui.components.ZoomTimeline
 import com.progresspal.app.ui.theme.Pal
@@ -161,7 +162,7 @@ fun TimeTrackerScreen(app: AppData, onBack: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> TimersTab(cache)
-                1 -> TimelineTab(cache, app, dayEpoch) { dayEpoch = it }
+                1 -> TimelineTab(cache, app, dayEpoch, onOpenTimers = { tab = 0 }) { dayEpoch = it }
                 else -> StatsTab(cache)
             }
         }
@@ -200,6 +201,23 @@ private fun TimersTab(cache: SttCache) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
+                    .clickable { SimpleTimeTracker.setSwitchMode(!cache.switchMode) }.padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Switch mode", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        if (cache.switchMode) "Tap an activity to switch to it (the running one stops)"
+                        else "Tap an activity to run it alongside the others",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                }
+                Switch(checked = cache.switchMode, onCheckedChange = { SimpleTimeTracker.setSwitchMode(it) })
+            }
+        }
         items(cache.running, key = { "run-${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { r ->
             val a = byId[r.id] ?: return@items
             val bg = a.color.asColor(); val fg = contentOn(bg)
@@ -234,7 +252,7 @@ private fun TimersTab(cache: SttCache) {
                 Modifier.aspectRatio(0.95f).clip(RoundedCornerShape(16.dp))
                     .background(if (on) c else Pal.c.card)
                     .border(2.dp, c.copy(alpha = if (on) 1f else .5f), RoundedCornerShape(16.dp))
-                    .clickable { SimpleTimeTracker.toggle(a) }.padding(8.dp),
+                    .clickable { SimpleTimeTracker.tap(a) }.padding(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -262,7 +280,7 @@ private data class Block(val start: Long, val end: Long, val name: String, val i
 private class Placed(val b: Block, val lane: Int) { var lanes = 1 }
 
 @Composable
-private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (Long) -> Unit) {
+private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTimers: () -> Unit, onDay: (Long) -> Unit) {
     val ctx = LocalContext.current
     val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     val now by rememberNow()
@@ -289,7 +307,6 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (L
     val states = plans.associate { it.id to planState(it, cache, now) }
     val donePlans = plans.filter { states[it.id]?.first == PlanState.DONE }
     var editing by remember { mutableStateOf<Pair<PlanItem, Boolean>?>(null) }
-    val actualCol = if (planOn) 1 else 0
 
     val items = blocks.map { b ->
         // An actual block that fulfils a plan gets a ✓.
@@ -299,7 +316,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (L
             title = "${b.icon} ${b.name}",
             right = (if (b.live) "▶ " else "") + dur(b.end - b.start),
             sub = clock(b.start, is24) + " - " + if (b.live) "now" else clock(b.end, is24),
-            live = b.live, column = actualCol, badge = if (fulfils) "✓" else "",
+            live = b.live, column = 0, badge = if (fulfils) "✓" else "",
         )
     } + if (!planOn) emptyList() else plans.map { p ->
         val (st, share) = states[p.id] ?: (PlanState.UPCOMING to 0f)
@@ -315,7 +332,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (L
             },
             sub = clock(p.start, is24).substringBeforeLast(":") + " - " + clock(p.end, is24).substringBeforeLast(":") +
                 listOfNotNull(p.subtitle, p.activityName?.let { "⏱ $it" }).let { if (it.isEmpty()) "" else "\n" + it.joinToString(" · ") },
-            column = 0,
+            column = 1,
             alpha = when (st) { PlanState.MISSED -> 0.35f; PlanState.UPCOMING -> 0.9f; else -> 1f },
             badge = when (st) { PlanState.DONE -> "✓"; PlanState.MISSED -> "✗"; else -> "" },
             outlined = st == PlanState.UPCOMING || st == PlanState.ACTIVE,
@@ -337,7 +354,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (L
                     val missed = states.values.count { it.first == PlanState.MISSED }
                     val left = plans.size - done - missed
                     Text(
-                        if (plans.isEmpty()) "Tap the Planner column to plan" else "Plan: $done ✓ · $missed ✗ · $left to go",
+                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap a plan to start it" else "Plan: $done ✓ · $missed ✗ · $left to go",
                         fontSize = 12.sp, color = Pal.c.mutedForeground,
                     )
                 }
@@ -356,10 +373,23 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (L
                 is24 = is24,
                 lineColor = Pal.c.mutedForeground,
                 labelColor = Pal.c.mutedForeground,
-                onItem = { item -> (item.key as? PlanItem)?.let { editing = it to false } },
+                onItem = { item ->
+                    val plan = item.key as? PlanItem
+                    if (plan != null) editing = plan to false else onOpenTimers()
+                },
+                onItemDoubleTap = { item ->
+                    val plan = item.key as? PlanItem
+                    if (plan != null) {
+                        val act = cache.activities.firstOrNull { it.id == plan.activityId }
+                            ?: cache.activities.firstOrNull { it.name.equals(plan.title, true) }
+                        if (act == null) toast(ctx, "Link this plan to an activity first (tap it → \"Counts as done when I track\")")
+                        else if (SimpleTimeTracker.isRunning(act.id)) toast(ctx, "${act.name} is already running")
+                        else { SimpleTimeTracker.start(act); toast(ctx, "Started ${act.name}") }
+                    }
+                },
                 onSwipeDay = { d -> onDay(dayEpoch + d) },
-                columns = if (planOn) listOf("Planner", "Actual") else emptyList(),
-                onEmptyTap = if (planOn) ({ col, ms -> if (col == 0) newPlanAt(ms) }) else null,
+                columns = if (planOn) listOf("Actual", "Planner") else emptyList(),
+                onEmptyTap = if (planOn) ({ col, ms -> if (col == 1) newPlanAt(ms) }) else null,
             )
         }
         // Day strip
