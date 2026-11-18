@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ import com.timetally.app.data.fmtDateTime
 import com.timetally.app.data.fmtDay
 import com.timetally.app.data.fmtDur
 import com.timetally.app.data.fmtDurSec
+import com.timetally.app.data.fmtClockSec
 import com.timetally.app.data.startMillis
 import java.time.LocalDate
 
@@ -136,8 +138,8 @@ fun RecordsScreen(data: AppData) {
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
+                .pointerInput(listMode) {
+                    if (listMode) detectHorizontalDragGestures(
                         onDragEnd = {
                             if (drag > 140) dayEpoch-- else if (drag < -140) dayEpoch++
                             drag = 0f
@@ -168,26 +170,36 @@ fun RecordsScreen(data: AppData) {
                     }
                 }
             } else {
-                val blocks = rows.map { row ->
-                    when (row) {
-                        is Row_.Rec -> {
-                            val t = data.types.firstOrNull { it.id == row.r.typeId }
-                            TimelineBlock(row, row.start, row.end, t, row.r.comment, live = false)
-                        }
-                        is Row_.Live -> {
-                            val t = data.types.firstOrNull { it.id == row.typeId }
-                            TimelineBlock(row, row.start, row.end, t, data.running.firstOrNull { it.typeId == row.typeId }?.comment ?: "", live = true)
-                        }
-                        is Row_.Gap -> TimelineBlock(row, row.start, row.end, null, "", false)
-                    }
+                val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
+                fun item(row: Row_, typeId: Long, comment: String, live: Boolean): TLItem {
+                    val t = data.types.firstOrNull { it.id == typeId }
+                    return TLItem(
+                        key = row, start = row.start, end = row.end,
+                        color = (t?.color ?: 0xFF9E9E9E).asColor(),
+                        title = (t?.emoji ?: "❓") + " " + (t?.name ?: "Deleted activity"),
+                        right = (if (live) "▶ " else "") + fmtDurSec(row.end - row.start),
+                        sub = fmtClockSec(row.start, is24) + " - " + (if (live) "now" else fmtClockSec(row.end, is24)) +
+                            if (comment.isNotBlank()) "\n$comment" else "",
+                        live = live,
+                    )
                 }
-                DayTimeline(
-                    dayKey = dayEpoch, from = from, blocks = blocks,
-                    gaps = gaps.map { it.start to it.end },
+                val items = rows.map { row ->
+                    when (row) {
+                        is Row_.Rec -> item(row, row.r.typeId, row.r.comment, false)
+                        is Row_.Live -> item(row, row.typeId, data.running.firstOrNull { it.typeId == row.typeId }?.comment ?: "", true)
+                        is Row_.Gap -> item(row, -1, "", false)
+                    }
+                } + gaps.map { g ->
+                    TLItem(g, g.start, g.end, Color.Transparent, "+ ${fmtDur(g.end - g.start)} untracked", "", "", gap = true)
+                }
+                ZoomTimeline(
+                    from = from, items = items,
                     nowMs = if (now in from until to) now else null,
-                    zoom = zoom,
-                    onBlock = { openRow(it as Row_) },
-                    onGap = { s, e -> openRow(Row_.Gap(s, e)) },
+                    is24 = is24,
+                    lineColor = MaterialTheme.colorScheme.outline,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onItem = { openRow(it.key as Row_) },
+                    onSwipeDay = { dayEpoch += it },
                 )
             }
         }

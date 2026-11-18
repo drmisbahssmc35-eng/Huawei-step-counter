@@ -298,10 +298,6 @@ fun DayStrip(
                     text = { Text(if (listMode) "Show timeline" else "Show as list") },
                     onClick = { menu = false; onToggleList() },
                 )
-                if (!listMode) DropdownMenuItem(
-                    text = { Text("Zoom: ${zoom}× → ${if (zoom >= 4) 1 else zoom * 2}×") },
-                    onClick = { menu = false; onZoom() },
-                )
             }
         }
     }

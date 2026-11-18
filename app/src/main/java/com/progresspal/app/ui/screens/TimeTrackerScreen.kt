@@ -66,6 +66,8 @@ import com.progresspal.app.data.SttCache
 import com.progresspal.app.data.SttRecord
 import com.progresspal.app.data.SttStatus
 import com.progresspal.app.ui.components.rememberNow
+import com.progresspal.app.ui.components.TLItem
+import com.progresspal.app.ui.components.ZoomTimeline
 import com.progresspal.app.ui.theme.Pal
 import java.time.Instant
 import java.time.LocalDate
@@ -273,63 +275,34 @@ private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) 
         }
     }
     val tracked = blocks.sumOf { it.end - it.start }
-    var drag by remember { mutableFloatStateOf(0f) }
+    val items = blocks.map { b ->
+        TLItem(
+            key = b, start = b.start, end = b.end, color = b.color,
+            title = "${b.icon} ${b.name}",
+            right = (if (b.live) "▶ " else "") + dur(b.end - b.start),
+            sub = clock(b.start, is24) + " - " + if (b.live) "now" else clock(b.end, is24),
+            live = b.live,
+        )
+    }
 
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Tracked ${shortDur(tracked)}",
+            "Tracked ${shortDur(tracked)}  ·  pinch with two fingers to zoom",
             Modifier.padding(horizontal = 16.dp, vertical = 2.dp), fontSize = 12.sp, color = Pal.c.mutedForeground,
         )
-        BoxWithConstraints(
-            Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
-                detectHorizontalDragGestures(onDragEnd = {
-                    if (drag > 140) onDay(dayEpoch - 1) else if (drag < -140 && dayEpoch < LocalDate.now().toEpochDay()) onDay(dayEpoch + 1)
-                    drag = 0f
-                }) { _, dx -> drag += dx }
-            }
-        ) {
-            val pad = 8.dp
-            val hourH: Dp = (maxHeight - pad * 2) / 24
-            val axis = 58.dp
-            val areaW = maxWidth - axis - 8.dp
-            fun y(ms: Long): Dp = hourH * ((ms - from).toFloat() / HOUR_MS)
-            val line = Pal.c.border
-            Box(Modifier.fillMaxSize().padding(vertical = pad)) {
-                for (h in 0..24) {
-                    Box(Modifier.offset(y = hourH * h).padding(start = 4.dp, end = axis).fillMaxWidth().height(1.dp).background(line))
-                    if (h % (if (hourH < 22.dp) 2 else 1) == 0) Text(
-                        if (is24) "%02d:00".format(h % 24) else "%02d %s".format(if (h % 12 == 0) 12 else h % 12, if (h % 24 < 12) "am" else "pm"),
-                        Modifier.align(Alignment.TopEnd).offset(y = hourH * h - 8.dp).width(axis - 4.dp),
-                        fontSize = 12.sp, color = Pal.c.mutedForeground, maxLines = 1,
-                    )
-                }
-                lanes(blocks).forEach { p ->
-                    val b = p.b
-                    val top = y(b.start)
-                    val h = maxOf(y(b.end) - top, 4.dp)
-                    val w = areaW / p.lanes
-                    val fg = contentOn(b.color)
-                    Box(
-                        Modifier.offset(x = 4.dp + w * p.lane, y = top).width(w - 2.dp).height(h)
-                            .clip(RoundedCornerShape(if (h > 16.dp) 10.dp else 3.dp)).background(b.color)
-                            .padding(horizontal = 8.dp, vertical = if (h > 26.dp) 4.dp else 0.dp),
-                    ) {
-                        if (h >= 18.dp) Column(Modifier.fillMaxHeight()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${b.icon} ${b.name}", Modifier.weight(1f), color = fg, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text((if (b.live) "▶ " else "") + dur(b.end - b.start), color = fg, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
-                            }
-                            if (h >= 40.dp) Text(
-                                clock(b.start, is24) + " - " + if (b.live) "now" else clock(b.end, is24),
-                                color = fg.copy(alpha = .85f), fontSize = 12.sp, maxLines = 1,
-                            )
-                        }
-                    }
-                }
-                if (now in from until to) {
-                    Box(Modifier.offset(y = y(now) - 1.dp).padding(end = axis).fillMaxWidth().height(2.dp).background(Color(0xFFFF3B30)))
-                }
-            }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            ZoomTimeline(
+                from = from, items = items,
+                nowMs = if (now in from until to) now else null,
+                is24 = is24,
+                lineColor = Pal.c.mutedForeground,
+                labelColor = Pal.c.mutedForeground,
+                onItem = {},
+                onSwipeDay = { d ->
+                    val next = dayEpoch + d
+                    if (next <= LocalDate.now().toEpochDay()) onDay(next)
+                },
+            )
         }
         // Day strip
         val today = LocalDate.now()
