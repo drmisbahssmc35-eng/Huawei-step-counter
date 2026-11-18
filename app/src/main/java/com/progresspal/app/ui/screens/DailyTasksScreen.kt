@@ -1,6 +1,10 @@
 package com.progresspal.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.combinedClickable
 import com.progresspal.app.ui.components.toast
 import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -98,6 +102,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
     var editChoice by remember { mutableStateOf<Pair<DailyEntry, Task>?>(null) }
     var deleteChoice by remember { mutableStateOf<DailyEntry?>(null) }
     var pickActivity by remember { mutableStateOf(false) }
+    var barMenu by remember { mutableStateOf<DailyEntry?>(null) }
     var goalFor by remember { mutableStateOf<com.progresspal.app.data.SttActivity?>(null) }
     val sttCache by com.progresspal.app.data.SimpleTimeTracker.cache.collectAsStateWithLifecycle()
 
@@ -181,22 +186,29 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                 )
             }
             entries.forEachIndexed { i, e ->
-                TaskRow(
-                    task = e.task, completed = e.completed, color = e.project.color.color(),
-                    badge = e.project.name,
-                    onToggle = {
-                        if (e.isRecurring) AppStore.toggleDateTask(e.task.id, selected) else AppStore.toggleTask(e.project.id, e.task.id)
-                        syncChallenge(e.task.id, !e.completed)
-                    },
-                    onDelete = {
-                        if (e.isRecurring) deleteChoice = e else AppStore.deleteTask(e.project.id, e.task.id)
-                    },
-                    onEdit = { updated ->
-                        if (e.isRecurring) editChoice = e to updated else AppStore.editTask(e.project.id, e.task.id) { updated }
-                    },
-                )
-                sttCache.taskGoals[e.task.id]?.let { g -> GoalProgress(g, selected, e.completed, sttCache) }
-                if (i < entries.lastIndex) Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Pal.c.border.copy(alpha = .5f)))
+                val toggle: () -> Unit = {
+                    if (e.isRecurring) AppStore.toggleDateTask(e.task.id, selected) else AppStore.toggleTask(e.project.id, e.task.id)
+                    syncChallenge(e.task.id, !e.completed)
+                }
+                val delete: () -> Unit = { if (e.isRecurring) deleteChoice = e else AppStore.deleteTask(e.project.id, e.task.id) }
+                val goal = com.progresspal.app.data.SimpleTimeTracker.goalFor(e.task.id, sttCache)
+                val act = goal?.let { g -> sttCache.activities.firstOrNull { it.id == g.activityId } }
+                if (goal != null && act != null) {
+                    // Simple Time Tracker-style bar that fills with tracked time towards the goal.
+                    GoalBar(e.task.title, act, goal, selected, e.completed, sttCache, onToggleDone = toggle, onLongPress = { barMenu = e })
+                    Spacer(Modifier.height(6.dp))
+                } else {
+                    TaskRow(
+                        task = e.task, completed = e.completed, color = e.project.color.color(),
+                        badge = e.project.name,
+                        onToggle = toggle,
+                        onDelete = delete,
+                        onEdit = { updated ->
+                            if (e.isRecurring) editChoice = e to updated else AppStore.editTask(e.project.id, e.task.id) { updated }
+                        },
+                    )
+                }
+                if (i < entries.lastIndex && (goal == null || act == null)) Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Pal.c.border.copy(alpha = .5f)))
             }
         }
 
@@ -221,6 +233,37 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
     )
     goalFor?.let { a ->
         AddFromActivityDialog(a, selected, isFuture, dueTime, onChange = { pickActivity = true; goalFor = null }) { goalFor = null }
+    }
+    LaunchedEffect(Unit) {
+        while (true) { com.progresspal.app.data.SimpleTimeTracker.syncSoon(1); kotlinx.coroutines.delay(30_000) }
+    }
+    barMenu?.let { e ->
+        val g = com.progresspal.app.data.SimpleTimeTracker.goalFor(e.task.id, sttCache)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { barMenu = null },
+            containerColor = Pal.c.card,
+            title = { Text(e.task.title, color = Pal.c.foreground) },
+            text = {
+                Column {
+                    Text("Daily goal", fontSize = 13.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(5, 10, 15, 20, 30, 45, 60, 90, 120).forEach { m ->
+                            GoalChip(if (m < 60) "${m}m" else if (m % 60 == 0) "${m / 60}h" else "${m / 60}h ${m % 60}m", g?.minutes == m) {
+                                if (g != null) com.progresspal.app.data.SimpleTimeTracker.setTaskGoal(e.task.id, g.activityId, m)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    if (e.isRecurring) deleteChoice = e else AppStore.deleteTask(e.project.id, e.task.id)
+                    barMenu = null
+                }) { Text("Delete task", color = Pal.c.destructive) }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { barMenu = null }) { Text("Close") } },
+        )
     }
     editChoice?.let { (e, updated) ->
         ChoiceDialog(
@@ -478,4 +521,78 @@ private fun GoalProgress(g: com.progresspal.app.data.TaskGoal, date: LocalDate, 
             Box(Modifier.fillMaxWidth(if (completed) 1f else frac).height(5.dp).clip(RoundedCornerShape(3.dp)).background(color))
         }
     }
+}
+
+/**
+ * A Daily Task tied to an activity, drawn like Simple Time Tracker's list: the bar starts empty
+ * and fills with the activity's colour as time is tracked (here, on the timeline or in Simple
+ * Time Tracker). Tap = start / stop the timer (today), circle = tick done by hand, hold = options.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun GoalBar(
+    title: String,
+    a: com.progresspal.app.data.SttActivity,
+    g: com.progresspal.app.data.TaskGoal,
+    date: LocalDate,
+    completed: Boolean,
+    stt: com.progresspal.app.data.SttCache,
+    onToggleDone: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val now by com.progresspal.app.ui.components.rememberNow()
+    val ms = com.progresspal.app.data.SimpleTimeTracker.trackedMs(g.activityId, date, stt, now)
+    val goalMs = (g.minutes.coerceAtLeast(1)) * 60_000L
+    val frac = if (completed) 1f else (ms.toFloat() / goalMs).coerceIn(0f, 1f)
+    val pct = ((ms * 100) / goalMs).toInt()
+    val running = stt.running.any { it.id == a.id }
+    val color = androidx.compose.ui.graphics.Color(a.color.toInt())
+    val white = androidx.compose.ui.graphics.Color.White
+    val shape = RoundedCornerShape(8.dp)
+    val isToday = date == LocalDate.now()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(shape)
+            .background(color.copy(alpha = 0.22f))
+            .border(if (running) 3.dp else 1.dp, if (running) white else color.copy(alpha = .6f), shape)
+            .combinedClickable(
+                onClick = {
+                    if (isToday) com.progresspal.app.data.SimpleTimeTracker.tap(a)
+                    else com.progresspal.app.ui.components.toast(ctx, "Timers can be started for today only")
+                },
+                onLongClick = onLongPress,
+            ),
+    ) {
+        // Filled part = tracked time / goal.
+        Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(color))
+        Row(Modifier.fillMaxSize().padding(start = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.progresspal.app.ui.components.SttIcon(a.icon, a.name, white, 32.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = white, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(
+                    (if (running) "▶ " else "") + "${fmtMin(ms)} / ${g.minutes}m · ${if (completed) "Done" else "${pct.coerceAtMost(999)}%"}",
+                    color = white.copy(alpha = .9f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                )
+            }
+            // Tick by hand (e.g. finished in 5 of 10 minutes).
+            Box(
+                Modifier.size(30.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(if (completed) white else white.copy(alpha = .15f))
+                    .border(2.dp, white, androidx.compose.foundation.shape.CircleShape)
+                    .clickable(onClick = onToggleDone),
+                contentAlignment = Alignment.Center,
+            ) { if (completed) Text("✓", color = color, fontWeight = FontWeight.Black, fontSize = 16.sp) }
+        }
+    }
+}
+
+private fun fmtMin(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    return if (s >= 3600) "${s / 3600}h ${(s % 3600) / 60}m" else if (s >= 60) "${s / 60}m ${s % 60}s" else "${s}s"
 }

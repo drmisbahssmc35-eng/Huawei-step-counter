@@ -300,6 +300,12 @@ object SimpleTimeTracker {
         return c.copy(autoDone = done.filter { it.substringAfterLast(':') >= cutoff })
     }
 
+    /** The goal shown for a task: its own, or the general minimum for a task paired by name. */
+    fun goalFor(taskId: String, c: SttCache = _cache.value): TaskGoal? =
+        c.taskGoals[taskId] ?: c.linkedTasks.entries.firstOrNull { it.value == taskId }?.let { (aid, _) ->
+            if (c.syncDailyTasks) TaskGoal(aid, c.autoCompleteMinutes.coerceAtLeast(1)) else null
+        }
+
     /** Ties a new task to an activity with a daily goal (0 = tick by hand only). */
     fun setTaskGoal(taskId: String, activityId: Long, minutes: Int) {
         val c = _cache.value
