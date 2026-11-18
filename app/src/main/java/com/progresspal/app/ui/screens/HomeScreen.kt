@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.SportsMartialArts
+import androidx.compose.material.icons.filled.Timer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.progresspal.app.data.SimpleTimeTracker
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,10 +64,12 @@ fun HomeScreen(
     onOpenAnalytics: () -> Unit,
     onOpenCompleted: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenTimeTracker: () -> Unit,
 ) {
     var selected by rememberSaveable { mutableStateOf(today()) }
     var showAdd by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    val stt by SimpleTimeTracker.cache.collectAsStateWithLifecycle()
 
     val projects = data.projects
     val (done, total, overall) = data.overallProgress()
@@ -114,6 +119,7 @@ fun HomeScreen(
 
         Spacer(Modifier.height(16.dp))
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LinkCard(Icons.Filled.Timer, Brand.blue, "Time Tracker", timeTrackerSubtitle(stt), onOpenTimeTracker)
             LinkCard(Icons.Filled.SportsMartialArts, Brand.coral, "Time vs Task Challenge", "Beat the clock, complete your tasks!", onOpenChallenge)
             LinkCard(Icons.AutoMirrored.Filled.TrendingUp, Brand.purple, "Analytics", "View your productivity insights", onOpenAnalytics)
             if (doneCount > 0) {

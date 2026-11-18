@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         AppStore.init(applicationContext)
+        com.progresspal.app.data.SimpleTimeTracker.init(applicationContext)
         handleAuth(intent)
         setContent {
             ProgressPalTheme {
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
         AppStore.autoResetRecurring()
         Cloud.pull()
         ProgressWidget.refresh(this)
+        com.progresspal.app.data.SimpleTimeTracker.syncSoon()
     }
 }
 
@@ -103,6 +105,7 @@ fun App() {
                 onOpenAnalytics = { nav.navigate("analytics") },
                 onOpenCompleted = { nav.navigate("completed") },
                 onOpenBackup = { nav.navigate("backup") },
+                onOpenTimeTracker = { nav.navigate("timetracker") },
             )
         }
         composable("project/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -117,6 +120,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
+        composable("timetracker") { com.progresspal.app.ui.screens.TimeTrackerScreen(back) }
     }
 }
 

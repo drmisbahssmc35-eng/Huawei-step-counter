@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Lets the app see Simple Time Tracker (Android 11+ package visibility) to sync with it. -->
+    <queries>
+        <package android:name="com.razeeman.util.simpletimetracker" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
