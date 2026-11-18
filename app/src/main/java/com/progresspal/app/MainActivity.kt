@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         AppStore.init(applicationContext)
         com.progresspal.app.data.SimpleTimeTracker.init(applicationContext)
+        com.progresspal.app.data.Planner.init(applicationContext)
         handleAuth(intent)
         setContent {
             ProgressPalTheme {
@@ -120,7 +121,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
-        composable("timetracker") { com.progresspal.app.ui.screens.TimeTrackerScreen(back) }
+        composable("timetracker") { com.progresspal.app.ui.screens.TimeTrackerScreen(data, back) }
     }
 }
 

@@ -2,7 +2,9 @@ package com.progresspal.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -27,6 +29,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -58,6 +61,14 @@ data class TLItem(
     val sub: String,
     val live: Boolean = false,
     val gap: Boolean = false,
+    /** Which column it sits in (0 = first). */
+    val column: Int = 0,
+    /** 1 = bright, lower = dimmed (e.g. a missed plan). */
+    val alpha: Float = 1f,
+    /** Small badge in the corner, e.g. "✓". */
+    val badge: String = "",
+    /** Drawn as an outline with a light fill (e.g. an upcoming plan). */
+    val outlined: Boolean = false,
 )
 
 private const val DAY_MS = 24 * 3_600_000L
@@ -77,11 +88,19 @@ fun ZoomTimeline(
     labelColor: Color,
     onItem: (TLItem) -> Unit,
     onSwipeDay: (Int) -> Unit,
+    /** Column titles; with two or more the area is split side by side. */
+    columns: List<String> = emptyList(),
+    /** Tap on empty space in a column: (column, time). */
+    onEmptyTap: ((Int, Long) -> Unit)? = null,
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
-    val placed = remember(items) { placeLanes(items.filterNot { it.gap }) }
+    val nCols = columns.size.coerceAtLeast(1)
+    val placed = remember(items) {
+        items.filterNot { it.gap }.groupBy { it.column }.flatMap { (_, l) -> placeLanes(l) }
+    }
+    val emptyTap by rememberUpdatedState(onEmptyTap)
     val gaps = remember(items) { items.filter { it.gap } }
     val swipe by rememberUpdatedState(onSwipeDay)
 
@@ -178,9 +197,27 @@ fun ZoomTimeline(
                 )
             }
 
+            val colW = areaPx / nCols
+            // Tap on empty space → callback with the time under the finger.
+            if (onEmptyTap != null) for (c in 0 until nCols) {
+                Box(
+                    Modifier
+                        .offset { IntOffset((4f + colW * c).roundToInt(), 0) }
+                        .size(width = with(density) { colW.toDp() }, height = with(density) { hPx.toDp() })
+                        .pointerInput(hPx, c, from) {
+                            detectTapGestures { pos ->
+                                val z = zoom
+                                val o = offset.coerceIn(0f, maxOffset(z))
+                                val ms = from + ((pos.y - padPx + o) / (dayPx(z) / DAY_MS)).toLong()
+                                emptyTap?.invoke(c, ms.coerceIn(from, from + DAY_MS - 60_000))
+                            }
+                        }
+                )
+            }
+
             // Untracked gaps.
             gaps.forEach { g ->
-                Segment(y(g.start), y(g.end), hPx, 4f, areaPx, density.density) {
+                Segment(y(g.start), y(g.end), hPx, 4f + colW * g.column, colW, density.density) {
                     Box(Modifier.fillMaxSize().clickable { onItem(g) }, contentAlignment = Alignment.Center) {
                         Text(g.title, fontSize = 11.sp, color = labelColor.copy(alpha = 0.7f), maxLines = 1)
                     }
@@ -189,17 +226,29 @@ fun ZoomTimeline(
 
             // Blocks; labels stick to the top of the visible part.
             placed.forEach { p ->
-                val laneW = areaPx / p.lanes
-                Segment(y(p.item.start), y(p.item.end), hPx, 4f + laneW * p.lane, laneW - 4f, density.density) { hDp ->
+                val laneW = colW / p.lanes
+                val x0 = 4f + colW * p.item.column + laneW * p.lane
+                Segment(y(p.item.start), y(p.item.end), hPx, x0, laneW - 4f, density.density) { hDp ->
                     val b = p.item
-                    val fg = contentOn(b.color)
+                    val shape = RoundedCornerShape(if (hDp > 16) 10.dp else 3.dp)
+                    val fill = if (b.outlined) b.color.copy(alpha = 0.18f) else b.color
+                    val fg = if (b.outlined) labelColor.copy(alpha = 1f) else contentOn(b.color)
                     Box(
                         Modifier.fillMaxSize()
-                            .clip(RoundedCornerShape(if (hDp > 16) 10.dp else 3.dp))
-                            .background(b.color)
+                            .alpha(b.alpha)
+                            .clip(shape)
+                            .background(fill)
+                            .then(if (b.outlined) Modifier.border(2.dp, b.color, shape) else Modifier)
                             .clickable { onItem(b) }
                             .padding(horizontal = 8.dp, vertical = if (hDp > 26) 4.dp else 0.dp),
                     ) {
+                        if (b.badge.isNotEmpty() && hDp >= 12) Text(
+                            b.badge,
+                            Modifier.align(Alignment.TopEnd).padding(top = if (hDp > 26) 18.dp else 0.dp)
+                                .clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.9f))
+                                .padding(horizontal = 5.dp),
+                            color = Color(0xFF111111), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                        )
                         if (hDp >= 18) Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -221,6 +270,25 @@ fun ZoomTimeline(
                         drawLine(Color(0xFFFF3B30), Offset(0f, ny), Offset(wPx - axisPx, ny), strokeWidth = 4f)
                         drawCircle(Color(0xFFFF3B30), 10f, Offset(8f, ny))
                     }
+                }
+            }
+
+            if (nCols > 1) {
+                Canvas(Modifier.fillMaxSize()) {
+                    for (c in 1 until nCols) {
+                        val x = 4f + colW * c - 2f
+                        drawLine(lineColor.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, hPx), strokeWidth = 2f)
+                    }
+                }
+                columns.forEachIndexed { c, title ->
+                    Text(
+                        title,
+                        Modifier
+                            .offset { IntOffset((4f + colW * c + 6f).roundToInt(), 4) }
+                            .clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                        color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
 

@@ -38,6 +38,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import com.progresspal.app.data.AppData
+import com.progresspal.app.data.PlanItem
+import com.progresspal.app.data.PlanState
+import com.progresspal.app.data.Planner
+import com.progresspal.app.data.planState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -104,7 +112,7 @@ private fun clock(ms: Long, is24: Boolean): String =
 private fun LocalDate.startMs(): Long = atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
 @Composable
-fun TimeTrackerScreen(onBack: () -> Unit) {
+fun TimeTrackerScreen(app: AppData, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val cache by SimpleTimeTracker.cache.collectAsStateWithLifecycle()
     val status by SimpleTimeTracker.status.collectAsStateWithLifecycle()
@@ -153,7 +161,7 @@ fun TimeTrackerScreen(onBack: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> TimersTab(cache)
-                1 -> TimelineTab(cache, dayEpoch) { dayEpoch = it }
+                1 -> TimelineTab(cache, app, dayEpoch) { dayEpoch = it }
                 else -> StatsTab(cache)
             }
         }
@@ -250,11 +258,11 @@ private fun totals(records: List<SttRecord>): Map<Long, Long> =
 
 /* ---------------- Timeline ---------------- */
 
-private data class Block(val start: Long, val end: Long, val name: String, val icon: String, val color: Color, val live: Boolean)
+private data class Block(val start: Long, val end: Long, val name: String, val icon: String, val color: Color, val live: Boolean, val activityId: Long? = null)
 private class Placed(val b: Block, val lane: Int) { var lanes = 1 }
 
 @Composable
-private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) {
+private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onDay: (Long) -> Unit) {
     val ctx = LocalContext.current
     val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     val now by rememberNow()
@@ -267,29 +275,80 @@ private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) 
         cache.days[day.toString()].orEmpty().forEach { r ->
             val a = r.activityId?.let { byId[it] }
             add(Block(maxOf(r.startedAt, from), minOf(r.endedAt, to), a?.name ?: r.activityName ?: "?",
-                iconText(a?.icon ?: r.activityIcon, a?.name ?: r.activityName), (a?.color ?: r.activityColor ?: 0xFF888888).asColor(), false))
+                iconText(a?.icon ?: r.activityIcon, a?.name ?: r.activityName), (a?.color ?: r.activityColor ?: 0xFF888888).asColor(), false, r.activityId))
         }
         cache.running.forEach { r ->
             val a = byId[r.id] ?: return@forEach
-            if (r.startedAt < to && now > from) add(Block(maxOf(r.startedAt, from), minOf(now, to), a.name, iconText(a.icon, a.name), a.color.asColor(), true))
+            if (r.startedAt < to && now > from) add(Block(maxOf(r.startedAt, from), minOf(now, to), a.name, iconText(a.icon, a.name), a.color.asColor(), true, a.id))
         }
     }
     val tracked = blocks.sumOf { it.end - it.start }
+    val planner by Planner.data.collectAsStateWithLifecycle()
+    val planOn = planner.enabled
+    val plans = planner.plans.filter { it.end > from && it.start < to }
+    val states = plans.associate { it.id to planState(it, cache, now) }
+    val donePlans = plans.filter { states[it.id]?.first == PlanState.DONE }
+    var editing by remember { mutableStateOf<Pair<PlanItem, Boolean>?>(null) }
+    val actualCol = if (planOn) 1 else 0
+
     val items = blocks.map { b ->
+        // An actual block that fulfils a plan gets a ✓.
+        val fulfils = planOn && donePlans.any { p -> p.activityId != null && p.activityId == b.activityId && b.end > p.start && b.start < p.end }
         TLItem(
             key = b, start = b.start, end = b.end, color = b.color,
             title = "${b.icon} ${b.name}",
             right = (if (b.live) "▶ " else "") + dur(b.end - b.start),
             sub = clock(b.start, is24) + " - " + if (b.live) "now" else clock(b.end, is24),
-            live = b.live,
+            live = b.live, column = actualCol, badge = if (fulfils) "✓" else "",
+        )
+    } + if (!planOn) emptyList() else plans.map { p ->
+        val (st, share) = states[p.id] ?: (PlanState.UPCOMING to 0f)
+        val c = (p.color ?: 0xFF5B8DEF).asColor()
+        TLItem(
+            key = p, start = maxOf(p.start, from), end = minOf(p.end, to), color = c,
+            title = p.title,
+            right = when (st) {
+                PlanState.DONE -> "Done"
+                PlanState.MISSED -> "${(share * 100).toInt()}%"
+                PlanState.ACTIVE -> "${(share * 100).toInt()}%"
+                PlanState.UPCOMING -> fmtMinutes(((p.end - p.start) / 60_000).toInt())
+            },
+            sub = clock(p.start, is24).substringBeforeLast(":") + " - " + clock(p.end, is24).substringBeforeLast(":") +
+                listOfNotNull(p.subtitle, p.activityName?.let { "⏱ $it" }).let { if (it.isEmpty()) "" else "\n" + it.joinToString(" · ") },
+            column = 0,
+            alpha = when (st) { PlanState.MISSED -> 0.35f; PlanState.UPCOMING -> 0.9f; else -> 1f },
+            badge = when (st) { PlanState.DONE -> "✓"; PlanState.MISSED -> "✗"; else -> "" },
+            outlined = st == PlanState.UPCOMING || st == PlanState.ACTIVE,
         )
     }
 
+    fun newPlanAt(ms: Long) {
+        val step = 5 * 60_000L
+        val start = (ms / step) * step
+        editing = PlanItem(start = start, end = start + 30 * 60_000L, title = "") to true
+    }
+
     Column(Modifier.fillMaxSize()) {
-        Text(
-            "Tracked ${shortDur(tracked)}  ·  pinch with two fingers to zoom",
-            Modifier.padding(horizontal = 16.dp, vertical = 2.dp), fontSize = 12.sp, color = Pal.c.mutedForeground,
-        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Tracked ${shortDur(tracked)}", fontSize = 12.sp, color = Pal.c.mutedForeground)
+                if (planOn) {
+                    val done = states.values.count { it.first == PlanState.DONE }
+                    val missed = states.values.count { it.first == PlanState.MISSED }
+                    val left = plans.size - done - missed
+                    Text(
+                        if (plans.isEmpty()) "Tap the Planner column to plan" else "Plan: $done ✓ · $missed ✗ · $left to go",
+                        fontSize = 12.sp, color = Pal.c.mutedForeground,
+                    )
+                }
+            }
+            if (planOn) TextButton(onClick = {
+                val base = if (day == LocalDate.now()) now + 5 * 60_000L else day.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                newPlanAt(base)
+            }) { Text("+ Plan", color = Pal.c.primary) }
+            Text("Planner", fontSize = 12.sp, color = Pal.c.mutedForeground)
+            Switch(checked = planOn, onCheckedChange = { Planner.setEnabled(it) }, modifier = Modifier.padding(start = 4.dp))
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             ZoomTimeline(
                 from = from, items = items,
@@ -297,11 +356,10 @@ private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) 
                 is24 = is24,
                 lineColor = Pal.c.mutedForeground,
                 labelColor = Pal.c.mutedForeground,
-                onItem = {},
-                onSwipeDay = { d ->
-                    val next = dayEpoch + d
-                    if (next <= LocalDate.now().toEpochDay()) onDay(next)
-                },
+                onItem = { item -> (item.key as? PlanItem)?.let { editing = it to false } },
+                onSwipeDay = { d -> onDay(dayEpoch + d) },
+                columns = if (planOn) listOf("Planner", "Actual") else emptyList(),
+                onEmptyTap = if (planOn) ({ col, ms -> if (col == 0) newPlanAt(ms) }) else null,
             )
         }
         // Day strip
@@ -313,7 +371,7 @@ private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) 
             (-2..2).forEach { i ->
                 val d = day.plusDays(i.toLong())
                 val sel = i == 0
-                val future = d.isAfter(today)
+                val future = false
                 Column(
                     Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
                         .background(if (sel) Pal.c.muted else Color.Transparent)
@@ -328,6 +386,7 @@ private fun TimelineTab(cache: SttCache, dayEpoch: Long, onDay: (Long) -> Unit) 
             }
         }
     }
+    editing?.let { (p, isNew) -> PlanEditor(p, isNew, app, cache) { editing = null } }
 }
 
 private fun lanes(blocks: List<Block>): List<Placed> {
