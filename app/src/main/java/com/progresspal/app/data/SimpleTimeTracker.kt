@@ -68,6 +68,8 @@ data class SttCache(
     val autoCompleteMinutes: Int = 1,
     /** "taskId:yyyy-MM-dd" already ticked automatically, so a manual un-tick is respected. */
     val autoDone: List<String> = emptyList(),
+    /** The one-time clean-up of tasks auto-added by an earlier version was handled. */
+    val cleanupDone: Boolean = false,
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -84,6 +86,8 @@ object SimpleTimeTracker {
     private const val START = A + "ACTION_START_ACTIVITY"
     private const val STOP = A + "ACTION_STOP_ACTIVITY"
     private const val STOP_ALL = A + "ACTION_STOP_ALL_ACTIVITIES"
+    /** When the version that auto-added Daily Tasks shipped (2026-11-18 06:00 UTC). */
+    private const val AUTO_ADD_FROM = 1794981600000L
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -284,6 +288,32 @@ object SimpleTimeTracker {
         save(_cache.value.copy(autoCompleteMinutes = m))
         if (m > 0) syncSoon(7)
     }
+
+    /**
+     * Tasks the earlier version added to "Daily Tasks" by itself (one per activity): daily, no time
+     * set, created after that version shipped, named like an activity. Offered for removal once.
+     */
+    fun autoAddedTasks(): List<Pair<String, Task>> {
+        val c = _cache.value
+        if (c.cleanupDone || c.activities.isEmpty()) return emptyList()
+        val daily = AppStore.data.value.projects.firstOrNull { it.name == "Daily Tasks" } ?: return emptyList()
+        val names = c.activities.map { it.name }.toSet()
+        return daily.tasks
+            .filter { t ->
+                t.repeat == Repeat.DAILY && t.dueTime == null && t.createdAt >= AUTO_ADD_FROM &&
+                    (t.title in names || t.id in c.linkedTasks.values)
+            }
+            .map { daily.id to it }
+    }
+
+    fun removeAutoAdded(items: List<Pair<String, Task>>) {
+        items.forEach { (projectId, t) -> AppStore.deleteTask(projectId, t.id) }
+        val ids = items.map { it.second.id }.toSet()
+        val c = _cache.value
+        save(c.copy(cleanupDone = true, linkedTasks = c.linkedTasks.filterValues { it !in ids }))
+    }
+
+    fun keepAutoAdded() = save(_cache.value.copy(cleanupDone = true))
 
     /** Activities that have no task with the same name yet — offered as Daily Task suggestions. */
     fun suggestions(): List<SttActivity> {

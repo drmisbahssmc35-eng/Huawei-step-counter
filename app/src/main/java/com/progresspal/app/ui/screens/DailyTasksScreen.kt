@@ -1,6 +1,8 @@
 package com.progresspal.app.ui.screens
 
 import androidx.compose.foundation.background
+import com.progresspal.app.ui.components.toast
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
@@ -112,6 +114,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
     Screen {
         ScreenHeader("Daily Tasks", selected.format("EEEE, MMMM d, yyyy"), Icons.Filled.CalendarMonth, Pal.c.primary, onBack)
         WeekStrip(selected) { selected = it }
+        AutoAddedCleanup(data)
 
         AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -308,4 +311,56 @@ private fun SttSuggestions(data: AppData, typed: String, onPick: (String) -> Uni
             )
         }
     }
+}
+
+/** One-time offer to remove the Daily Tasks an earlier version added from Simple Time Tracker. */
+@Composable
+private fun AutoAddedCleanup(data: AppData) {
+    val stt by com.progresspal.app.data.SimpleTimeTracker.cache.collectAsStateWithLifecycle()
+    val found = remember(stt, data) { com.progresspal.app.data.SimpleTimeTracker.autoAddedTasks() }
+    if (found.isEmpty()) return
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var review by remember { mutableStateOf(false) }
+    var keep by remember(found) { mutableStateOf(found.map { it.second.id }.toSet()) }
+
+    AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        Text(
+            "${found.size} tasks were added here automatically from Simple Time Tracker by the earlier version.",
+            fontSize = 14.sp, color = Pal.c.foreground,
+        )
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.Button(onClick = { review = true }, shape = RoundedCornerShape(10.dp)) { Text("Review & remove") }
+            androidx.compose.material3.TextButton(onClick = { com.progresspal.app.data.SimpleTimeTracker.keepAutoAdded() }) { Text("Keep them") }
+        }
+    }
+
+    if (review) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { review = false },
+        containerColor = Pal.c.card,
+        title = { Text("Remove auto-added tasks", color = Pal.c.foreground) },
+        text = {
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                Text("Untick any you want to keep. They will still show as suggestions afterwards.", fontSize = 13.sp, color = Pal.c.mutedForeground)
+                Spacer(Modifier.height(8.dp))
+                found.forEach { (_, t) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { keep = if (t.id in keep) keep - t.id else keep + t.id },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.Checkbox(checked = t.id in keep, onCheckedChange = { keep = if (it) keep + t.id else keep - t.id })
+                        Text(t.title, color = Pal.c.foreground, fontSize = 14.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                val chosen = found.filter { it.second.id in keep }
+                com.progresspal.app.data.SimpleTimeTracker.removeAutoAdded(chosen)
+                toast(ctx, "Removed ${chosen.size} task${if (chosen.size == 1) "" else "s"}")
+                review = false
+            }) { Text("Remove ${keep.size}", color = Pal.c.destructive) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { review = false }) { Text("Cancel") } },
+    )
 }
