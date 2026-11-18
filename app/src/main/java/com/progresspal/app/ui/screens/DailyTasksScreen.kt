@@ -326,7 +326,12 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                 Column {
                     Text("Daily goal", fontSize = 13.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val fromStt = g?.let { com.progresspal.app.data.SimpleTimeTracker.sttGoalMinutes(it.activityId, sttCache) }
+                    if (fromStt != null) Text(
+                        "${fmtMinutes(fromStt)} — from Simple Time Tracker (change it there)",
+                        color = Pal.c.foreground, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                    else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(5, 10, 15, 20, 30, 45, 60, 90, 120).forEach { m ->
                             GoalChip(if (m < 60) "${m}m" else if (m % 60 == 0) "${m / 60}h" else "${m / 60}h ${m % 60}m", g?.minutes == m) {
                                 if (g != null) com.progresspal.app.data.SimpleTimeTracker.setTaskGoal(e.task.id, g.activityId, m)
@@ -515,7 +520,8 @@ private fun AddFromActivityDialog(
     onChange: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var goal by remember { mutableStateOf(10) }
+    val sttGoal = com.progresspal.app.data.SimpleTimeTracker.sttGoalMinutes(a.id)
+    var goal by remember { mutableStateOf(sttGoal ?: 10) }
     var repeat by remember { mutableStateOf(if (isFuture) Repeat.ONCE else Repeat.DAILY) }
     var days by remember { mutableStateOf(listOf<String>()) }
     val goals = listOf(5, 10, 15, 20, 30, 45, 60, 90, 120)
@@ -531,7 +537,11 @@ private fun AddFromActivityDialog(
                 Spacer(Modifier.height(14.dp))
                 Text("Daily goal — done automatically when tracked this long", fontSize = 13.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (sttGoal != null) Text(
+                    "${fmtMinutes(sttGoal)} — from Simple Time Tracker (change it there)",
+                    color = Pal.c.foreground, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                )
+                else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     goals.forEach { m -> GoalChip(if (m < 60) "${m}m" else if (m % 60 == 0) "${m / 60}h" else "${m / 60}h ${m % 60}m", goal == m) { goal = m } }
                     GoalChip("No goal", goal == 0) { goal = 0 }
                 }
@@ -659,7 +669,7 @@ private fun GoalBar(
                 Text(title, color = white, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 Text(
-                    (if (running) "▶ " else "") + "${fmtMin(ms)} / ${g.minutes}m · ${if (completed) "Done" else "${pct.coerceAtMost(999)}%"}",
+                    (if (running) "▶ " else "") + "${fmtMin(ms)} / ${fmtMinutes(g.minutes)} · ${if (completed) "Done" else "${pct.coerceAtMost(999)}%"}",
                     color = white.copy(alpha = .9f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                 )
             }

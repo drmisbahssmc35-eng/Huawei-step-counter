@@ -76,6 +76,11 @@ data class SttCache(
     val cleanupDone: Boolean = false,
     /** Progress Pal task id → its activity and daily goal (set when adding from the Activity List). */
     val taskGoals: Map<String, TaskGoal> = emptyMap(),
+    /** Simple Time Tracker's own daily goals, activity id → seconds (read from its automatic backup). */
+    val sttGoals: Map<Long, Long> = emptyMap(),
+    /** The automatic backup file the user pointed us to (content:// uri), if any. */
+    val backupUri: String? = null,
+    val goalsReadAt: Long = 0,
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -92,6 +97,7 @@ object SimpleTimeTracker {
     private const val START = A + "ACTION_START_ACTIVITY"
     private const val STOP = A + "ACTION_STOP_ACTIVITY"
     private const val STOP_ALL = A + "ACTION_STOP_ALL_ACTIVITIES"
+    private const val MAKE_BACKUP = A + "ACTION_EXTERNAL_AUTOMATIC_BACKUP"
     /** When the version that auto-added Daily Tasks shipped (2026-11-18 06:00 UTC). */
     private const val AUTO_ADD_FROM = 1794981600000L
 
@@ -172,6 +178,12 @@ object SimpleTimeTracker {
                 if (acts == null) { _status.value = SttStatus.NO_ANSWER; return@withLock }
                 runCatching { c = c.copy(activities = json.decodeFromString<List<SttActivity>>(acts)) }
                 if (c.syncDailyTasks) c = withContext(Dispatchers.Main) { pairDailyTasks(c) }
+                c.backupUri?.let { uri ->
+                    // Ask Simple Time Tracker to refresh its automatic backup, then read the goals from it.
+                    appContext.sendBroadcast(command(MAKE_BACKUP))
+                    delay(2500)
+                    readGoals(uri)?.let { c = c.copy(sttGoals = it, goalsReadAt = System.currentTimeMillis()) }
+                }
             }
             ask(QUERY_RUNNING, RESP_RUNNING) { putExtra("extra_answer_type", "json") }?.let { r ->
                 runCatching { c = c.copy(running = json.decodeFromString<List<SttRunning>>(r)) }
@@ -274,9 +286,14 @@ object SimpleTimeTracker {
      */
     private fun autoComplete(c: SttCache, dates: List<LocalDate>): SttCache {
         val rules = mutableListOf<Triple<String, Long, Long>>() // taskId, activityId, minimum ms
-        c.taskGoals.forEach { (tid, g) -> if (g.minutes > 0) rules += Triple(tid, g.activityId, g.minutes * 60_000L) }
+        c.taskGoals.forEach { (tid, g) ->
+            val m = sttGoalMinutes(g.activityId, c) ?: g.minutes
+            if (m > 0) rules += Triple(tid, g.activityId, m * 60_000L)
+        }
         if (c.syncDailyTasks && c.autoCompleteMinutes > 0) {
-            c.linkedTasks.forEach { (aid, tid) -> if (tid !in c.taskGoals) rules += Triple(tid, aid, c.autoCompleteMinutes * 60_000L) }
+            c.linkedTasks.forEach { (aid, tid) ->
+                if (tid !in c.taskGoals) rules += Triple(tid, aid, (sttGoalMinutes(aid, c) ?: c.autoCompleteMinutes) * 60_000L)
+            }
         }
         if (rules.isEmpty()) return c
         val done = c.autoDone.toMutableSet()
@@ -301,10 +318,47 @@ object SimpleTimeTracker {
     }
 
     /** The goal shown for a task: its own, or the general minimum for a task paired by name. */
-    fun goalFor(taskId: String, c: SttCache = _cache.value): TaskGoal? =
-        c.taskGoals[taskId] ?: c.linkedTasks.entries.firstOrNull { it.value == taskId }?.let { (aid, _) ->
+    fun goalFor(taskId: String, c: SttCache = _cache.value): TaskGoal? {
+        val base = c.taskGoals[taskId] ?: c.linkedTasks.entries.firstOrNull { it.value == taskId }?.let { (aid, _) ->
             if (c.syncDailyTasks) TaskGoal(aid, c.autoCompleteMinutes.coerceAtLeast(1)) else null
+        } ?: return null
+        // Simple Time Tracker's own daily goal wins, so both apps show the same goal.
+        return sttGoalMinutes(base.activityId, c)?.let { base.copy(minutes = it) } ?: base
+    }
+
+    /** Simple Time Tracker's daily goal for an activity, in minutes (rounded up), if it has one. */
+    fun sttGoalMinutes(activityId: Long, c: SttCache = _cache.value): Int? =
+        c.sttGoals[activityId]?.takeIf { it > 0 }?.let { ((it + 59) / 60).toInt() }
+
+    /** Remembers the automatic backup file and reads the goals from it now. */
+    fun setBackupFile(context: Context, uri: android.net.Uri) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        val goals = readGoals(uri.toString())
+        save(_cache.value.copy(backupUri = uri.toString(), sttGoals = goals ?: _cache.value.sttGoals, goalsReadAt = System.currentTimeMillis()))
+    }
+
+    fun forgetBackupFile() = save(_cache.value.copy(backupUri = null, sttGoals = emptyMap()))
+
+    /**
+     * Daily duration goals from a Simple Time Tracker backup file: rows
+     * "recordTypeGoal  id  activityId  range  type  value(seconds)  categoryId  days  subtype  tagId"
+     * where range 1 = daily, type 0 = duration, subtype 0 = goal (not limit).
+     */
+    private fun readGoals(uri: String): Map<Long, Long>? = runCatching {
+        val out = HashMap<Long, Long>()
+        appContext.contentResolver.openInputStream(android.net.Uri.parse(uri))!!.bufferedReader().useLines { lines ->
+            lines.filter { it.startsWith("recordTypeGoal\t") }.forEach { line ->
+                val p = line.split('\t')
+                val activityId = p.getOrNull(2)?.toLongOrNull() ?: return@forEach
+                val range = p.getOrNull(3); val type = p.getOrNull(4); val subtype = p.getOrNull(8) ?: "0"
+                val seconds = p.getOrNull(5)?.toLongOrNull() ?: return@forEach
+                if (activityId != 0L && range == "1" && type == "0" && subtype == "0" && seconds > 0) out[activityId] = seconds
+            }
+        }
+        out as Map<Long, Long>
+    }.getOrNull()
 
     /** Ties a new task to an activity with a daily goal (0 = tick by hand only). */
     fun setTaskGoal(taskId: String, activityId: Long, minutes: Int) {

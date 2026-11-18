@@ -221,8 +221,13 @@ private fun TimersTab(cache: SttCache) {
                     Text(timer(now - run.startedAt), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(6.dp))
                     Icon(Icons.Filled.Stop, "Stop", tint = Color.White)
-                } else todayTotals[a.id]?.let {
-                    Text(shortDur(it), color = Color.White.copy(alpha = .85f), fontSize = 13.sp)
+                } else {
+                    val g = SimpleTimeTracker.sttGoalMinutes(a.id, cache)
+                    val t = todayTotals[a.id] ?: 0L
+                    if (g != null) Column(horizontalAlignment = Alignment.End) {
+                        Text(shortDur(t), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("goal ${fmtMinutes(g)} · ${((t * 100) / (g * 60_000L)).toInt()}%", color = Color.White.copy(alpha = .85f), fontSize = 12.sp)
+                    } else if (t > 0) Text(shortDur(t), color = Color.White.copy(alpha = .85f), fontSize = 13.sp)
                 }
             }
         }
@@ -295,6 +300,38 @@ private fun TimersTab(cache: SttCache) {
                         color = Pal.c.mutedForeground, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp),
                     )
                     TextButton(onClick = { SimpleTimeTracker.openApp(ctx) }) { Text("Open Simple Time Tracker") }
+                }
+            }
+        }
+        item {
+            val ctx = LocalContext.current
+            val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+            ) { uri -> if (uri != null) SimpleTimeTracker.setBackupFile(ctx, uri) }
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text("Goals from Simple Time Tracker", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                if (cache.backupUri != null) {
+                    Text(
+                        "${cache.sttGoals.size} daily goal${if (cache.sttGoals.size == 1) "" else "s"} synced" +
+                            (if (cache.goalsReadAt > 0) " · " + DateTimeFormatter.ofPattern("d MMM, HH:mm").format(Instant.ofEpochMilli(cache.goalsReadAt).atZone(ZoneId.systemDefault())) else "") +
+                            ". Daily Tasks use these goals; change them in Simple Time Tracker.",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                    Row {
+                        TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Choose another file") }
+                        TextButton(onClick = { SimpleTimeTracker.forgetBackupFile() }) { Text("Stop", color = Pal.c.destructive) }
+                    }
+                } else {
+                    Text(
+                        "Simple Time Tracker shares its goals only through its backup file. In Simple Time Tracker open " +
+                            "Settings → Backup → Automatic backup, turn it on and choose a folder. Then tap below and pick " +
+                            "\"stt_automatic.backup\" in that folder. Progress Pal refreshes and reads it on every sync.",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                    TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Choose backup file") }
                 }
             }
         }
