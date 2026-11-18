@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -97,6 +98,7 @@ fun App() {
     val back: () -> Unit = { nav.popBackStack() }
     val openProject: (String) -> Unit = { nav.navigate("project/$it") }
 
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
     NavHost(nav, startDestination = "home") {
         composable("home") {
             HomeScreen(
@@ -123,6 +125,9 @@ fun App() {
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
         composable("timetracker") { com.progresspal.app.ui.screens.TimeTrackerScreen(data, back) }
+    }
+    // On every page: a small button that opens Simple Time Tracker.
+    com.progresspal.app.ui.components.SttLauncherFab()
     }
 }
 
