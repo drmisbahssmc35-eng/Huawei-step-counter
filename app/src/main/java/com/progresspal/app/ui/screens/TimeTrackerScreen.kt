@@ -93,7 +93,7 @@ private fun contentOn(bg: Color): Color =
 /** Simple Time Tracker icons are either text/emoji or a drawable name we can't show here. */
 private fun iconText(icon: String?, name: String?): String =
     if (icon.isNullOrBlank() || icon.startsWith("ic_") || icon.all { it.isLetterOrDigit() || it == '_' } && icon.length > 3)
-        (name ?: "?").take(1).uppercase()
+        (name ?: "?").replace(Regex("^\\d+\\s*[.)\\-:]?\\s*"), "").ifBlank { name ?: "?" }.take(1).uppercase()
     else icon
 
 private fun dur(ms: Long): String {
@@ -196,13 +196,56 @@ private fun TimersTab(cache: SttCache) {
     val byId = cache.activities.associateBy { it.id }
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(100.dp),
+        columns = GridCells.Fixed(1),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+        if (cache.running.size > 1) item {
+            OutlinedButton(onClick = { SimpleTimeTracker.stopAll() }) { Text("Stop all (${cache.running.size} running)", color = Pal.c.foreground) }
+        }
+        if (cache.activities.isEmpty()) item {
+            Text(
+                "No activities yet. They appear here after the first sync with Simple Time Tracker.",
+                Modifier.padding(16.dp), color = Pal.c.mutedForeground,
+            )
+        }
+        // One full-width coloured bar per activity, like Simple Time Tracker. Tap = start / stop.
+        items(cache.activities, key = { it.id }) { a ->
+            val run = cache.running.firstOrNull { it.id == a.id }
+            val c = a.color.asColor()
+            val fg = contentOn(c)
+            val shape = RoundedCornerShape(8.dp)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .clip(shape)
+                    .background(c)
+                    .then(if (run != null) Modifier.border(3.dp, Color.White, shape) else Modifier)
+                    .clickable { SimpleTimeTracker.tap(a) }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(36.dp).background(fg.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                    Text(iconText(a.icon, a.name), fontSize = 18.sp, color = fg, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    a.name, Modifier.weight(1f), color = fg, fontWeight = FontWeight.SemiBold, fontSize = 17.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                if (run != null) {
+                    Text(timer(now - run.startedAt), color = fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Stop, "Stop", tint = fg)
+                } else todayTotals[a.id]?.let {
+                    Text(shortDur(it), color = fg.copy(alpha = .85f), fontSize = 13.sp)
+                }
+            }
+        }
+        item { Spacer(Modifier.height(12.dp)) }
+        item {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
                     .clickable { SimpleTimeTracker.setSwitchMode(!cache.switchMode) }.padding(horizontal = 12.dp, vertical = 4.dp),
@@ -219,7 +262,7 @@ private fun TimersTab(cache: SttCache) {
                 Switch(checked = cache.switchMode, onCheckedChange = { SimpleTimeTracker.setSwitchMode(it) })
             }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) {
+        item {
             val ctx = LocalContext.current
             val missing = remember(cache.activities, cache.linkedTasks) { SimpleTimeTracker.dailyTasksMissingInStt() }
             Column(
@@ -263,56 +306,6 @@ private fun TimersTab(cache: SttCache) {
                     )
                     TextButton(onClick = { SimpleTimeTracker.openApp(ctx) }) { Text("Open Simple Time Tracker") }
                 }
-            }
-        }
-        items(cache.running, key = { "run-${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { r ->
-            val a = byId[r.id] ?: return@items
-            val bg = a.color.asColor(); val fg = contentOn(bg)
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(bg)
-                    .clickable { SimpleTimeTracker.toggle(a) }.padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(iconText(a.icon, a.name), fontSize = 26.sp, color = fg)
-                Spacer(Modifier.width(10.dp))
-                Text(a.name, Modifier.weight(1f), color = fg, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(timer(now - r.startedAt), color = fg, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-                Icon(Icons.Filled.Stop, "Stop", tint = fg)
-            }
-        }
-        if (cache.running.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
-            OutlinedButton(onClick = { SimpleTimeTracker.stopAll() }) { Text("Stop all", color = Pal.c.foreground) }
-        }
-        if (cache.activities.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                "No activities yet. They appear here after the first sync with Simple Time Tracker.",
-                Modifier.padding(16.dp), color = Pal.c.mutedForeground,
-            )
-        }
-        items(cache.activities, key = { it.id }) { a ->
-            val run = cache.running.firstOrNull { it.id == a.id }
-            val c = a.color.asColor()
-            val on = run != null
-            val fg = if (on) contentOn(c) else Pal.c.foreground
-            Column(
-                Modifier.aspectRatio(0.95f).clip(RoundedCornerShape(16.dp))
-                    .background(if (on) c else Pal.c.card)
-                    .border(2.dp, c.copy(alpha = if (on) 1f else .5f), RoundedCornerShape(16.dp))
-                    .clickable { SimpleTimeTracker.tap(a) }.padding(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Box(Modifier.size(44.dp).background(if (on) Color.Transparent else c.copy(alpha = .22f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text(iconText(a.icon, a.name), fontSize = 22.sp, color = fg, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(a.name, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (run != null) timer(now - run.startedAt) else todayTotals[a.id]?.let { shortDur(it) } ?: " ",
-                    color = fg.copy(alpha = if (on) 1f else .6f), fontSize = 12.sp,
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                )
             }
         }
     }
