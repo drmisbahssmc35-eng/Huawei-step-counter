@@ -58,6 +58,8 @@ data class SttCache(
     val lastSync: Long = 0,
     /** Starting an activity from Progress Pal stops the one that is running ("switch"). */
     val switchMode: Boolean = true,
+    /** Records hidden in Progress Pal (Simple Time Tracker does not let other apps delete them). */
+    val hidden: List<Long> = emptyList(),
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -164,7 +166,7 @@ object SimpleTimeTracker {
                 answered = true
                 val list = runCatching { json.decodeFromString<List<SttRecord>>(data) }.getOrNull() ?: continue
                 days2[today.plusDays(shift.toLong()).toString()] =
-                    list.filter { it.type == "TRACKED" }.sortedBy { it.startedAt }
+                    list.filter { it.type == "TRACKED" && it.id !in c.hidden }.sortedBy { it.startedAt }
             }
             c = c.copy(days = days2, lastSync = System.currentTimeMillis())
             save(c)
@@ -197,6 +199,12 @@ object SimpleTimeTracker {
             else c.copy(running = c.running + SttRunning(a.id, System.currentTimeMillis()))
         )
         scope.launch { delay(900); sync(days = 1) }
+    }
+
+    /** Hide a finished record from Progress Pal's timeline, stats and plan checks. */
+    fun hideRecord(id: Long) {
+        val c = _cache.value
+        save(c.copy(hidden = c.hidden + id, days = c.days.mapValues { (_, l) -> l.filterNot { it.id == id } }))
     }
 
     fun setSwitchMode(on: Boolean) = save(_cache.value.copy(switchMode = on))

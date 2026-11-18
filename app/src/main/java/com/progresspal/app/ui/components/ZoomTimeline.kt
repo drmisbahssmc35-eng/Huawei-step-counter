@@ -99,6 +99,8 @@ fun ZoomTimeline(
     onEmptyTap: ((Int, Long) -> Unit)? = null,
     /** Double tap on a block. */
     onItemDoubleTap: ((TLItem) -> Unit)? = null,
+    /** Long press on a block. */
+    onItemLongPress: ((TLItem) -> Unit)? = null,
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableFloatStateOf(0f) }
@@ -249,6 +251,7 @@ fun ZoomTimeline(
                             .combinedClickable(
                                 onClick = { onItem(b) },
                                 onDoubleClick = if (onItemDoubleTap != null && b.column == 1) ({ onItemDoubleTap(b) }) else null,
+                                onLongClick = if (onItemLongPress != null) ({ onItemLongPress(b) }) else null,
                             )
                             .padding(horizontal = 8.dp, vertical = if (hDp > 26) 4.dp else 0.dp),
                     ) {

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -276,7 +277,7 @@ private fun totals(records: List<SttRecord>): Map<Long, Long> =
 
 /* ---------------- Timeline ---------------- */
 
-private data class Block(val start: Long, val end: Long, val name: String, val icon: String, val color: Color, val live: Boolean, val activityId: Long? = null)
+private data class Block(val start: Long, val end: Long, val name: String, val icon: String, val color: Color, val live: Boolean, val activityId: Long? = null, val recordId: Long? = null)
 private class Placed(val b: Block, val lane: Int) { var lanes = 1 }
 
 @Composable
@@ -293,7 +294,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
         cache.days[day.toString()].orEmpty().forEach { r ->
             val a = r.activityId?.let { byId[it] }
             add(Block(maxOf(r.startedAt, from), minOf(r.endedAt, to), a?.name ?: r.activityName ?: "?",
-                iconText(a?.icon ?: r.activityIcon, a?.name ?: r.activityName), (a?.color ?: r.activityColor ?: 0xFF888888).asColor(), false, r.activityId))
+                iconText(a?.icon ?: r.activityIcon, a?.name ?: r.activityName), (a?.color ?: r.activityColor ?: 0xFF888888).asColor(), false, r.activityId, r.id))
         }
         cache.running.forEach { r ->
             val a = byId[r.id] ?: return@forEach
@@ -307,6 +308,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
     val states = plans.associate { it.id to planState(it, cache, now) }
     val donePlans = plans.filter { states[it.id]?.first == PlanState.DONE }
     var editing by remember { mutableStateOf<Pair<PlanItem, Boolean>?>(null) }
+    var deleting by remember { mutableStateOf<Any?>(null) }
 
     val items = blocks.map { b ->
         // An actual block that fulfils a plan gets a ✓.
@@ -354,7 +356,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                     val missed = states.values.count { it.first == PlanState.MISSED }
                     val left = plans.size - done - missed
                     Text(
-                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap a plan to start it" else "Plan: $done ✓ · $missed ✗ · $left to go",
+                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap a plan to start it · hold to delete" else "Plan: $done ✓ · $missed ✗ · $left to go",
                         fontSize = 12.sp, color = Pal.c.mutedForeground,
                     )
                 }
@@ -385,6 +387,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                     val plan = item.key as? PlanItem
                     if (plan != null) editing = plan to false else onOpenTimers()
                 },
+                onItemLongPress = { item -> deleting = item.key },
                 onItemDoubleTap = { item ->
                     val plan = item.key as? PlanItem
                     if (plan != null) {
@@ -425,6 +428,61 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
         }
     }
     editing?.let { (p, isNew) -> PlanEditor(p, isNew, app, cache) { editing = null } }
+    deleting?.let { key -> DeleteDialog(key, is24, cache) { deleting = null } }
+}
+
+/** Long-press menu: delete a plan, or hide / stop an actual block. */
+@Composable
+private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val hm: (Long) -> String = { clock(it, is24).substringBeforeLast(":") }
+    when (key) {
+        is PlanItem -> AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Pal.c.card,
+            title = { Text("Delete plan?", color = Pal.c.foreground) },
+            text = { Text("\"${key.title}\" · ${hm(key.start)} – ${hm(key.end)}", color = Pal.c.foreground) },
+            confirmButton = {
+                TextButton(onClick = { Planner.delete(key.id); toast(ctx, "Plan deleted"); onDismiss() }) {
+                    Text("Delete", color = Pal.c.destructive)
+                }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
+        is Block -> AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Pal.c.card,
+            title = { Text(if (key.live) "Stop ${key.name}?" else "Delete ${key.name}?", color = Pal.c.foreground) },
+            text = {
+                Text(
+                    if (key.live) "This activity is running in Simple Time Tracker. Stop it now?"
+                    else "${hm(key.start)} – ${hm(key.end)}\n\n" +
+                        "Simple Time Tracker does not let other apps delete its records. " +
+                        "\"Remove here\" hides it in Progress Pal (timeline, stats and plans). " +
+                        "To delete it for good, open Simple Time Tracker and delete it there.",
+                    color = Pal.c.foreground, fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                if (key.live) TextButton(onClick = {
+                    cache.activities.firstOrNull { it.id == key.activityId }?.let { SimpleTimeTracker.toggle(it) }
+                    onDismiss()
+                }) { Text("Stop", color = Pal.c.destructive) }
+                else TextButton(onClick = {
+                    key.recordId?.let { SimpleTimeTracker.hideRecord(it) }
+                    toast(ctx, "Removed from Progress Pal")
+                    onDismiss()
+                }) { Text("Remove here", color = Pal.c.destructive) }
+            },
+            dismissButton = {
+                Row {
+                    if (!key.live) TextButton(onClick = { SimpleTimeTracker.openApp(ctx); onDismiss() }) { Text("Open Simple Time Tracker") }
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            },
+        )
+        else -> {}
+    }
 }
 
 private fun lanes(blocks: List<Block>): List<Placed> {
