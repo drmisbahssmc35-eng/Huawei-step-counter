@@ -177,7 +177,6 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                     Spacer(Modifier.height(8.dp))
                     DayChips(days) { d -> days = if (d in days) days - d else days + d }
                 }
-                SttSuggestions(data, title) { title = it }
             }
         }
 
