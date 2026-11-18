@@ -116,9 +116,17 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, app: AppData, stt: SttCache, o
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Section("When") {
+                    val nextMinute = (System.currentTimeMillis() / 60_000L + 1) * 60_000L
+                    val lastEnd = Planner.data.value.plans
+                        .filter { it.id != initial.id && Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate() == date }
+                        .maxOfOrNull { it.end }
+                    if (date == LocalDate.now()) Chip("Now + 1 min", Pal.c.primary, startMs == nextMinute) { startMs = nextMinute }
+                    if (lastEnd != null) Chip("After last plan · ${hm.format(Instant.ofEpochMilli(lastEnd).atZone(zone))}", Pal.c.primary, startMs == lastEnd) {
+                        startMs = lastEnd
+                    }
                     OutlinedButton(onClick = { showDate = true }) { Text(DateTimeFormatter.ofPattern("EEE d MMM").format(date), color = Pal.c.foreground) }
                     OutlinedButton(onClick = { showTime = true }) {
-                        Text("${hm.format(startZ)} – ${hm.format(Instant.ofEpochMilli(endMs).atZone(zone))}", color = Pal.c.foreground)
+                        Text("Start ${hm.format(startZ)} – ${hm.format(Instant.ofEpochMilli(endMs).atZone(zone))}", color = Pal.c.foreground)
                     }
                 }
                 Section("Duration · ${fmtMinutes(minutes)}") {

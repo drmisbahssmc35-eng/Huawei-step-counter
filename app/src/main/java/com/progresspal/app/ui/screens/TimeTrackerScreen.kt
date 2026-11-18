@@ -360,8 +360,16 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                 }
             }
             if (planOn) TextButton(onClick = {
-                val base = if (day == LocalDate.now()) now + 5 * 60_000L else day.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                newPlanAt(base)
+                // Start right after the last plan of this day, otherwise 1 minute from now (or 9:00 on other days).
+                val nextMinute = (now / 60_000L + 1) * 60_000L
+                val lastEnd = planner.plans.filter { it.start in from until to }.maxOfOrNull { it.end }
+                val isToday = day == LocalDate.now()
+                val base = when {
+                    lastEnd != null && (!isToday || lastEnd > now) -> lastEnd
+                    isToday -> nextMinute
+                    else -> day.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                }
+                editing = PlanItem(start = base, end = base + 30 * 60_000L, title = "") to true
             }) { Text("+ Plan", color = Pal.c.primary) }
             Text("Planner", fontSize = 12.sp, color = Pal.c.mutedForeground)
             Switch(checked = planOn, onCheckedChange = { Planner.setEnabled(it) }, modifier = Modifier.padding(start = 4.dp))
