@@ -115,6 +115,21 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, app: AppData, stt: SttCache, o
         containerColor = Pal.c.card,
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Section("When") {
+                    OutlinedButton(onClick = { showDate = true }) { Text(DateTimeFormatter.ofPattern("EEE d MMM").format(date), color = Pal.c.foreground) }
+                    OutlinedButton(onClick = { showTime = true }) {
+                        Text("${hm.format(startZ)} – ${hm.format(Instant.ofEpochMilli(endMs).atZone(zone))}", color = Pal.c.foreground)
+                    }
+                }
+                Section("Duration · ${fmtMinutes(minutes)}") {
+                    DurationChoices.forEach { m ->
+                        Chip(fmtMinutes(m), Pal.c.primary, minutes == m) { minutes = m }
+                    }
+                    Chip("−5", Pal.c.mutedForeground, false) { minutes = (minutes - 5).coerceAtLeast(5) }
+                    Chip("+5", Pal.c.mutedForeground, false) { minutes += 5 }
+                }
+
+                Spacer(Modifier.height(6.dp))
                 // Selected
                 pick?.let { p ->
                     Row(
@@ -169,20 +184,6 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, app: AppData, stt: SttCache, o
                     stt.activities.forEach { a ->
                         Chip(a.name, a.color.asC(), activityId == a.id) { activityId = if (activityId == a.id) null else a.id }
                     }
-                }
-
-                Section("When") {
-                    OutlinedButton(onClick = { showDate = true }) { Text(DateTimeFormatter.ofPattern("EEE d MMM").format(date), color = Pal.c.foreground) }
-                    OutlinedButton(onClick = { showTime = true }) {
-                        Text("${hm.format(startZ)} – ${hm.format(Instant.ofEpochMilli(endMs).atZone(zone))}", color = Pal.c.foreground)
-                    }
-                }
-                Section("Duration · ${fmtMinutes(minutes)}") {
-                    DurationChoices.forEach { m ->
-                        Chip(fmtMinutes(m), Pal.c.primary, minutes == m) { minutes = m }
-                    }
-                    Chip("−5", Pal.c.mutedForeground, false) { minutes = (minutes - 5).coerceAtLeast(5) }
-                    Chip("+5", Pal.c.mutedForeground, false) { minutes += 5 }
                 }
 
                 if (!isNew) {
