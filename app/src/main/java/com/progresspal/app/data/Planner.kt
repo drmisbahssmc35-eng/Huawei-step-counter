@@ -26,6 +26,12 @@ data class PlanItem(
     val activityId: Long? = null,
     val activityName: String? = null,
     val color: Long? = null,
+    /** "NONE", "DAILY", "WEEKLY", "MONTHLY", "YEARLY" or "CUSTOM" (on [days]). */
+    val repeat: String = "NONE",
+    /** For CUSTOM: day labels "Sat".."Fri". */
+    val days: List<String> = emptyList(),
+    /** Dates ("yyyy-MM-dd") where a repeating plan was removed for that day only. */
+    val skip: List<String> = emptyList(),
 )
 
 @Serializable
@@ -68,6 +74,13 @@ object Planner {
     }
 
     fun delete(id: String) = update { d -> d.copy(plans = d.plans.filterNot { it.id == id }) }
+
+    /** Removes one day of a repeating plan. */
+    fun skipDay(id: String, date: java.time.LocalDate) = update { d ->
+        d.copy(plans = d.plans.map { if (it.id == id) it.copy(skip = it.skip + date.toString()) else it })
+    }
+
+    fun series(id: String): PlanItem? = _data.value.plans.firstOrNull { it.id == id }
 
     fun plansBetween(from: Long, to: Long): List<PlanItem> = _data.value.plans.filter { it.end > from && it.start < to }
 }
@@ -115,4 +128,31 @@ fun planState(p: PlanItem, stt: SttCache, now: Long): Pair<PlanState, Float> {
         else -> PlanState.UPCOMING
     }
     return state to share
+}
+
+/**
+ * The plans that happen on [date]: one-off plans touching that day, plus each repeating plan
+ * moved to that day (same time of day and length) when its rule matches.
+ */
+fun occurrencesOn(data: PlannerData, date: java.time.LocalDate): List<PlanItem> {
+    val zone = ZoneId.systemDefault()
+    val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+    val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    return data.plans.mapNotNull { p ->
+        if (p.repeat == "NONE") return@mapNotNull p.takeIf { it.end > from && it.start < to }
+        val first = Instant.ofEpochMilli(p.start).atZone(zone)
+        val d0 = first.toLocalDate()
+        if (date.isBefore(d0) || date.toString() in p.skip) return@mapNotNull null
+        val match = when (p.repeat) {
+            "DAILY" -> true
+            "WEEKLY" -> date.dayOfWeek == d0.dayOfWeek
+            "MONTHLY" -> date.dayOfMonth == d0.dayOfMonth
+            "YEARLY" -> date.dayOfMonth == d0.dayOfMonth && date.month == d0.month
+            "CUSTOM" -> date.dayLabel() in p.days
+            else -> false
+        }
+        if (!match) return@mapNotNull null
+        val start = date.atTime(first.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
+        p.copy(start = start, end = start + (p.end - p.start))
+    }.sortedBy { it.start }
 }

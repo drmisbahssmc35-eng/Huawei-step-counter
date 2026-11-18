@@ -2,6 +2,20 @@ package com.progresspal.app.ui.components
 
 import android.content.Context
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import com.progresspal.app.data.SttActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -55,5 +69,36 @@ fun SttIcon(icon: String?, name: String?, tint: Color, size: Dp = 32.dp) {
             val letter = (name ?: "?").replace(Regex("^\\d+\\s*[.)\\-:]?\\s*"), "").ifBlank { name ?: "?" }.take(1).uppercase()
             Text(letter, fontSize = (size.value * 0.62f).sp, color = tint, fontWeight = FontWeight.Bold)
         }
+    }
+}
+
+
+/** One activity as a full-width bar in its own colour, exactly like Simple Time Tracker's list. */
+@Composable
+fun SttActivityRow(
+    a: SttActivity,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(shape)
+            .background(Color(a.color.toInt()))
+            .then(if (selected) Modifier.border(3.dp, Color.White, shape) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SttIcon(a.icon, a.name, Color.White, 34.dp)
+        Spacer(Modifier.width(18.dp))
+        Text(
+            a.name, Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        trailing()
     }
 }

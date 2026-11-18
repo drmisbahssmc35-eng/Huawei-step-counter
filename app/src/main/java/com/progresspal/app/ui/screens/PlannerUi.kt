@@ -6,24 +6,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,197 +36,166 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.progresspal.app.data.AppData
 import com.progresspal.app.data.PlanItem
 import com.progresspal.app.data.Planner
+import com.progresspal.app.data.SttActivity
 import com.progresspal.app.data.SttCache
-import com.progresspal.app.data.activeProjects
-import com.progresspal.app.data.dailyTasksFor
-import com.progresspal.app.ui.components.DatePickerModal
+import com.progresspal.app.ui.components.DayChips
+import com.progresspal.app.ui.components.SttActivityRow
 import com.progresspal.app.ui.components.TimePickerModal
-import com.progresspal.app.ui.components.toast
 import com.progresspal.app.ui.theme.Pal
-import com.progresspal.app.ui.theme.color
 import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-val DurationChoices = listOf(5, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 240)
+/** Quick lengths offered for a plan. */
+val DurationChoices = listOf(5, 10, 15, 20, 30, 45, 60, 120, 180)
 
-private data class Pick(
-    val kind: String,
-    val refId: String?,
-    val title: String,
-    val subtitle: String?,
-    val color: Long?,
-    val activityId: Long? = null,
+private val Repeats = listOf(
+    "NONE" to "Once", "DAILY" to "Daily", "WEEKLY" to "Weekly",
+    "MONTHLY" to "Monthly", "YEARLY" to "Yearly", "CUSTOM" to "Custom",
 )
 
+/**
+ * Planning a block: first the Activity List (like Simple Time Tracker), then a small box with
+ * From time, quick durations and repeat.
+ */
 @Composable
-fun PlanEditor(initial: PlanItem, isNew: Boolean, app: AppData, stt: SttCache, onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
+fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") app: AppData, stt: SttCache, onDismiss: () -> Unit) {
     val zone = ZoneId.systemDefault()
-    val memo = Planner.data.value.lastActivityFor
-
-    var pick by remember {
-        mutableStateOf(
-            if (isNew && initial.title.isBlank()) null
-            else Pick(initial.kind, initial.refId, initial.title, initial.subtitle, initial.color, initial.activityId)
-        )
-    }
-    var activityId by remember { mutableStateOf(initial.activityId) }
-    var search by remember { mutableStateOf("") }
-    var startMs by remember { mutableLongStateOf(initial.start) }
+    val series = if (isNew) null else Planner.series(initial.id)
+    var activity by remember { mutableStateOf(stt.activities.firstOrNull { it.id == initial.activityId }) }
+    var picking by remember { mutableStateOf(activity == null) }
+    var fromMs by remember { mutableLongStateOf(initial.start) }
     var minutes by remember { mutableIntStateOf(((initial.end - initial.start) / 60_000).toInt().coerceAtLeast(5)) }
-    var showTime by remember { mutableStateOf(false) }
-    var showDate by remember { mutableStateOf(false) }
+    var repeat by remember { mutableStateOf(series?.repeat ?: "NONE") }
+    var days by remember { mutableStateOf(series?.days ?: emptyList()) }
+    var showFrom by remember { mutableStateOf(false) }
+    var showTo by remember { mutableStateOf(false) }
 
-    val startZ = Instant.ofEpochMilli(startMs).atZone(zone)
-    val date = startZ.toLocalDate()
-    val endMs = startMs + minutes * 60_000L
-    val hm = DateTimeFormatter.ofPattern("h:mm a")
-
-    fun choose(p: Pick) {
-        pick = p
-        // Pre-select the activity: the item itself, last used, or one with the same name.
-        activityId = p.activityId
-            ?: memo["${p.kind}:${p.refId}"]
-            ?: stt.activities.firstOrNull { it.name.equals(p.title, true) || it.name.equals(p.subtitle ?: "", true) }?.id
-            ?: activityId
+    if (picking) {
+        ActivityPicker(
+            activities = stt.activities,
+            selectedId = activity?.id,
+            onPick = { activity = it; picking = false },
+            onDismiss = { if (activity == null) onDismiss() else picking = false },
+        )
+        return
     }
+    val a = activity ?: return
 
-    val q = search.trim()
-    fun match(s: String) = q.isEmpty() || s.contains(q, ignoreCase = true)
-    val tasks = dailyTasksFor(app, date).filter { match(it.task.title) || match(it.project.name) }.take(40)
-    val projects = activeProjects(app.projects).filter { match(it.name) }.take(30)
-    val acts = stt.activities.filter { match(it.name) }
+    val fromZ = Instant.ofEpochMilli(fromMs).atZone(zone)
+    val toMs = fromMs + minutes * 60_000L
+    val hm = DateTimeFormatter.ofPattern("h:mm a")
+    val dateLabel = DateTimeFormatter.ofPattern("EEE d MMM").format(fromZ)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isNew) "Plan a block" else "Edit plan", color = Pal.c.foreground) },
         containerColor = Pal.c.card,
+        title = { Text(if (isNew) "Plan" else "Edit plan", color = Pal.c.foreground) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Section("When") {
-                    val nextMinute = (System.currentTimeMillis() / 60_000L + 1) * 60_000L
-                    val lastEnd = Planner.data.value.plans
-                        .filter { it.id != initial.id && Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate() == date }
-                        .maxOfOrNull { it.end }
-                    if (date == LocalDate.now()) Chip("Now + 1 min", Pal.c.primary, startMs == nextMinute) { startMs = nextMinute }
-                    if (lastEnd != null) Chip("After last plan · ${hm.format(Instant.ofEpochMilli(lastEnd).atZone(zone))}", Pal.c.primary, startMs == lastEnd) {
-                        startMs = lastEnd
-                    }
-                    OutlinedButton(onClick = { showDate = true }) { Text(DateTimeFormatter.ofPattern("EEE d MMM").format(date), color = Pal.c.foreground) }
-                    OutlinedButton(onClick = { showTime = true }) {
-                        Text("Start ${hm.format(startZ)} – ${hm.format(Instant.ofEpochMilli(endMs).atZone(zone))}", color = Pal.c.foreground)
-                    }
-                }
-                Section("Duration · ${fmtMinutes(minutes)}") {
-                    DurationChoices.forEach { m ->
-                        Chip(fmtMinutes(m), Pal.c.primary, minutes == m) { minutes = m }
-                    }
-                    Chip("−5", Pal.c.mutedForeground, false) { minutes = (minutes - 5).coerceAtLeast(5) }
-                    Chip("+5", Pal.c.mutedForeground, false) { minutes += 5 }
+                // The chosen activity — tap to choose another.
+                SttActivityRow(a, onClick = { picking = true }) {
+                    Text("Change", color = Color.White.copy(alpha = .85f), fontSize = 12.sp)
                 }
 
-                Spacer(Modifier.height(6.dp))
-                // Selected
-                pick?.let { p ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background((p.color ?: 0xFF5B8DEF).asC().copy(alpha = .18f)).padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(12.dp).background((p.color ?: 0xFF5B8DEF).asC(), CircleShape))
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(p.title, color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            p.subtitle?.let { Text(it, color = Pal.c.mutedForeground, fontSize = 12.sp) }
-                        }
+                Label("From · $dateLabel")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { showFrom = true }) {
+                        Text(hm.format(fromZ).lowercase(), color = Pal.c.foreground, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    Text("  to  ", color = Pal.c.mutedForeground)
+                    OutlinedButton(onClick = { showTo = true }) {
+                        Text(hm.format(Instant.ofEpochMilli(toMs).atZone(zone)).lowercase(), color = Pal.c.foreground, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                Label("For · ${fmtMinutes(minutes)}")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DurationChoices.forEach { m -> Chip(fmtMinutes(m), minutes == m) { minutes = m } }
+                }
+
+                Label("Repeat")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Repeats.forEach { (key, label) -> Chip(label, repeat == key) { repeat = key } }
+                }
+                if (repeat == "CUSTOM") {
                     Spacer(Modifier.height(8.dp))
-                }
-
-                OutlinedTextField(
-                    value = search, onValueChange = { search = it },
-                    label = { Text("Search tasks, projects, activities") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(),
-                )
-                if (q.isNotEmpty()) TextButton(onClick = { choose(Pick("custom", null, q, null, null)) }) {
-                    Text("Use \"$q\" as a custom plan")
-                }
-
-                if (tasks.isNotEmpty()) Section("Tasks · ${DateTimeFormatter.ofPattern("EEE d MMM").format(date)}") {
-                    tasks.forEach { e ->
-                        val c = e.project.color.color()
-                        Chip(e.task.title, c, pick?.kind == "task" && pick?.refId == e.task.id, done = e.completed) {
-                            choose(Pick("task", e.task.id, e.task.title, e.project.name, c.toArgbLong()))
-                        }
-                    }
-                }
-                if (projects.isNotEmpty()) Section("Projects") {
-                    projects.forEach { p ->
-                        val c = p.color.color()
-                        Chip(p.name, c, pick?.kind == "project" && pick?.refId == p.id) {
-                            choose(Pick("project", p.id, p.name, p.target, c.toArgbLong()))
-                        }
-                    }
-                }
-                if (acts.isNotEmpty()) Section("Simple Time Tracker activities") {
-                    acts.forEach { a ->
-                        Chip(a.name, a.color.asC(), pick?.kind == "activity" && pick?.refId == a.id.toString()) {
-                            choose(Pick("activity", a.id.toString(), a.name, null, a.color, a.id))
-                        }
-                    }
-                }
-
-                if (stt.activities.isNotEmpty()) Section("Counts as done when I track") {
-                    stt.activities.forEach { a ->
-                        Chip(a.name, a.color.asC(), activityId == a.id) { activityId = if (activityId == a.id) null else a.id }
-                    }
+                    DayChips(days) { d -> days = if (d in days) days - d else days + d }
                 }
 
                 if (!isNew) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     TextButton(onClick = { Planner.delete(initial.id); onDismiss() }) {
-                        Text("Delete plan", color = Pal.c.destructive)
+                        Text(if (series != null && series.repeat != "NONE") "Delete plan (all days)" else "Delete plan", color = Pal.c.destructive)
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val p = pick
-                if (p == null) { toast(ctx, "Pick a task, project or activity"); return@TextButton }
-                val actName = stt.activities.firstOrNull { it.id == activityId }?.name
+                // A repeating plan keeps its first day; only the time of day and length change.
+                val firstDay = series?.let { Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate() } ?: fromZ.toLocalDate()
+                val start = firstDay.atTime(fromZ.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
                 Planner.save(
-                    initial.copy(
-                        start = startMs, end = endMs, title = p.title, kind = p.kind, refId = p.refId,
-                        subtitle = p.subtitle, activityId = activityId, activityName = actName,
-                        color = p.color ?: stt.activities.firstOrNull { it.id == activityId }?.color,
+                    (series ?: initial).copy(
+                        start = start, end = start + minutes * 60_000L,
+                        title = a.name, kind = "activity", refId = a.id.toString(), subtitle = null,
+                        activityId = a.id, activityName = a.name, color = a.color,
+                        repeat = if (repeat == "CUSTOM" && days.isEmpty()) "NONE" else repeat,
+                        days = if (repeat == "CUSTOM") days else emptyList(),
                     )
                 )
-                if (activityId == null) toast(ctx, "Tip: pick an activity under \"Counts as done\" so the plan can be checked")
                 onDismiss()
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 
-    if (showTime) TimePickerModal(startZ.toLocalTime(), { showTime = false }) { t: LocalTime ->
-        startMs = date.atTime(t).atZone(zone).toInstant().toEpochMilli()
-        showTime = false
+    if (showFrom) TimePickerModal(fromZ.toLocalTime(), { showFrom = false }) { t: LocalTime ->
+        fromMs = fromZ.toLocalDate().atTime(t).atZone(zone).toInstant().toEpochMilli()
+        showFrom = false
     }
-    if (showDate) DatePickerModal(date, { showDate = false }) { d: LocalDate ->
-        startMs = d.atTime(startZ.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
-        showDate = false
+    if (showTo) TimePickerModal(Instant.ofEpochMilli(toMs).atZone(zone).toLocalTime(), { showTo = false }) { t: LocalTime ->
+        var end = fromZ.toLocalDate().atTime(t).atZone(zone).toInstant().toEpochMilli()
+        if (end <= fromMs) end += 24 * 3_600_000L // past midnight
+        minutes = ((end - fromMs) / 60_000).toInt().coerceAtLeast(1)
+        showTo = false
+    }
+}
+
+/** Full-screen Activity List, same look as Simple Time Tracker. */
+@Composable
+private fun ActivityPicker(activities: List<SttActivity>, selectedId: Long?, onPick: (SttActivity) -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(Pal.c.background).padding(top = 12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Choose an activity", Modifier.weight(1f), color = Pal.c.foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+            if (activities.isEmpty()) {
+                Text(
+                    "No activities yet. Open Simple Time Tracker once and sync (⟳) so its activities appear here.",
+                    Modifier.padding(16.dp), color = Pal.c.mutedForeground,
+                )
+            }
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(activities, key = { it.id }) { a ->
+                    SttActivityRow(a, selected = a.id == selectedId, onClick = { onPick(a) })
+                }
+            }
+        }
     }
 }
 
@@ -237,29 +205,25 @@ fun fmtMinutes(m: Int): String = when {
     else -> "${m / 60}h ${m % 60}m"
 }
 
-private fun Long.asC() = Color(this.toInt())
-private fun Color.toArgbLong(): Long =
-    ((alpha * 255).toLong() shl 24) or ((red * 255).toLong() shl 16) or ((green * 255).toLong() shl 8) or (blue * 255).toLong()
-
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Spacer(Modifier.height(10.dp))
-    Text(title, color = Pal.c.mutedForeground, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+private fun Label(text: String) {
+    Spacer(Modifier.height(14.dp))
+    Text(text, color = Pal.c.mutedForeground, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(6.dp))
 }
 
 @Composable
-private fun Chip(text: String, color: Color, selected: Boolean, done: Boolean = false, onClick: () -> Unit) {
+private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
+    val c = Pal.c.primary
     Text(
-        (if (done) "✓ " else "") + text,
+        text,
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) color else color.copy(alpha = .14f))
-            .border(1.dp, color.copy(alpha = if (selected) 1f else .4f), RoundedCornerShape(50))
+            .background(if (selected) c else c.copy(alpha = .12f))
+            .border(1.dp, c.copy(alpha = if (selected) 1f else .4f), RoundedCornerShape(50))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         color = if (selected) Color.White else Pal.c.foreground,
-        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        fontSize = 14.sp,
     )
 }

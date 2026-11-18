@@ -47,6 +47,7 @@ import com.progresspal.app.data.PlanItem
 import com.progresspal.app.data.PlanState
 import com.progresspal.app.data.Planner
 import com.progresspal.app.data.planState
+import com.progresspal.app.data.occurrencesOn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,6 +77,7 @@ import com.progresspal.app.data.SttRecord
 import com.progresspal.app.data.SttStatus
 import com.progresspal.app.ui.components.rememberNow
 import com.progresspal.app.ui.components.SttIcon
+import com.progresspal.app.ui.components.SttActivityRow
 import com.progresspal.app.ui.components.toast
 import com.progresspal.app.ui.components.TLItem
 import com.progresspal.app.ui.components.ZoomTimeline
@@ -214,32 +216,13 @@ private fun TimersTab(cache: SttCache) {
         // One full-width coloured bar per activity, like Simple Time Tracker. Tap = start / stop.
         items(cache.activities, key = { it.id }) { a ->
             val run = cache.running.firstOrNull { it.id == a.id }
-            val c = a.color.asColor()
-            val fg = Color.White // Simple Time Tracker always uses white on the activity colour
-            val shape = RoundedCornerShape(8.dp)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .clip(shape)
-                    .background(c)
-                    .then(if (run != null) Modifier.border(3.dp, Color.White, shape) else Modifier)
-                    .clickable { SimpleTimeTracker.tap(a) }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SttIcon(a.icon, a.name, fg, 34.dp)
-                Spacer(Modifier.width(18.dp))
-                Text(
-                    a.name, Modifier.weight(1f), color = fg, fontWeight = FontWeight.Bold, fontSize = 17.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+            SttActivityRow(a, selected = run != null, onClick = { SimpleTimeTracker.tap(a) }) {
                 if (run != null) {
-                    Text(timer(now - run.startedAt), color = fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(timer(now - run.startedAt), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Filled.Stop, "Stop", tint = fg)
+                    Icon(Icons.Filled.Stop, "Stop", tint = Color.White)
                 } else todayTotals[a.id]?.let {
-                    Text(shortDur(it), color = fg.copy(alpha = .85f), fontSize = 13.sp)
+                    Text(shortDur(it), color = Color.White.copy(alpha = .85f), fontSize = 13.sp)
                 }
             }
         }
@@ -350,7 +333,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
     val tracked = blocks.sumOf { it.end - it.start }
     val planner by Planner.data.collectAsStateWithLifecycle()
     val planOn = planner.enabled
-    val plans = planner.plans.filter { it.end > from && it.start < to }
+    val plans = occurrencesOn(planner, day)
     val states = plans.associate { it.id to planState(it, cache, now) }
     val donePlans = plans.filter { states[it.id]?.first == PlanState.DONE }
     var editing by remember { mutableStateOf<Pair<PlanItem, Boolean>?>(null) }
@@ -387,10 +370,17 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
         )
     }
 
-    fun newPlanAt(ms: Long) {
-        val step = 5 * 60_000L
-        val start = (ms / step) * step
-        editing = PlanItem(start = start, end = start + 30 * 60_000L, title = "") to true
+    /** New plan: opens the Activity List; From = end of the latest plan still ahead, else now. */
+    fun newPlan() {
+        val nowMin = (now / 60_000L) * 60_000L
+        val lastEnd = plans.maxOfOrNull { it.end }
+        val isToday = day == LocalDate.now()
+        val base = when {
+            lastEnd != null && (!isToday || lastEnd > nowMin) -> lastEnd
+            isToday -> nowMin
+            else -> day.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        }
+        editing = PlanItem(start = base, end = base + 30 * 60_000L, title = "") to true
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -402,23 +392,12 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                     val missed = states.values.count { it.first == PlanState.MISSED }
                     val left = plans.size - done - missed
                     Text(
-                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap a plan to start it · hold to delete" else "Plan: $done ✓ · $missed ✗ · $left to go",
+                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap to start · hold to delete" else "Plan: $done ✓ · $missed ✗ · $left to go",
                         fontSize = 12.sp, color = Pal.c.mutedForeground,
                     )
                 }
             }
-            if (planOn) TextButton(onClick = {
-                // Start right after the last plan of this day, otherwise 1 minute from now (or 9:00 on other days).
-                val nextMinute = (now / 60_000L + 1) * 60_000L
-                val lastEnd = planner.plans.filter { it.start in from until to }.maxOfOrNull { it.end }
-                val isToday = day == LocalDate.now()
-                val base = when {
-                    lastEnd != null && (!isToday || lastEnd > now) -> lastEnd
-                    isToday -> nextMinute
-                    else -> day.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                }
-                editing = PlanItem(start = base, end = base + 30 * 60_000L, title = "") to true
-            }) { Text("+ Plan", color = Pal.c.primary) }
+            if (planOn) TextButton(onClick = { newPlan() }) { Text("+ Plan", color = Pal.c.primary) }
             Text("Planner", fontSize = 12.sp, color = Pal.c.mutedForeground)
             Switch(checked = planOn, onCheckedChange = { Planner.setEnabled(it) }, modifier = Modifier.padding(start = 4.dp))
         }
@@ -446,7 +425,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                 },
                 onSwipeDay = { d -> onDay(dayEpoch + d) },
                 columns = if (planOn) listOf("Actual", "Planner") else emptyList(),
-                onEmptyTap = if (planOn) ({ col, ms -> if (col == 1) newPlanAt(ms) }) else null,
+                onEmptyTap = if (planOn) ({ col, _ -> if (col == 1) newPlan() }) else null,
             )
         }
         // Day strip
@@ -487,9 +466,23 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
             onDismissRequest = onDismiss,
             containerColor = Pal.c.card,
             title = { Text("Delete plan?", color = Pal.c.foreground) },
-            text = { Text("\"${key.title}\" · ${hm(key.start)} – ${hm(key.end)}", color = Pal.c.foreground) },
+            text = {
+                Text(
+                    "\"${key.title}\" · ${hm(key.start)} – ${hm(key.end)}" +
+                        if (key.repeat != "NONE") "\nThis plan repeats." else "",
+                    color = Pal.c.foreground,
+                )
+            },
             confirmButton = {
-                TextButton(onClick = { Planner.delete(key.id); toast(ctx, "Plan deleted"); onDismiss() }) {
+                if (key.repeat != "NONE") Row {
+                    TextButton(onClick = {
+                        Planner.skipDay(key.id, Instant.ofEpochMilli(key.start).atZone(ZoneId.systemDefault()).toLocalDate())
+                        toast(ctx, "Removed for this day"); onDismiss()
+                    }) { Text("This day", color = Pal.c.destructive) }
+                    TextButton(onClick = { Planner.delete(key.id); toast(ctx, "Plan deleted"); onDismiss() }) {
+                        Text("All days", color = Pal.c.destructive)
+                    }
+                } else TextButton(onClick = { Planner.delete(key.id); toast(ctx, "Plan deleted"); onDismiss() }) {
                     Text("Delete", color = Pal.c.destructive)
                 }
             },
