@@ -171,6 +171,8 @@ fun AnalyticsScreen(data: AppData, onBack: () -> Unit) {
     Screen {
         ScreenHeader("Analytics", "Your productivity insights", Icons.Filled.BarChart, Pal.c.primary, onBack)
 
+        ProductivityLevelSection(data)
+
         // ── Today: day progress + task progress ──
         run {
             val todays = com.progresspal.app.data.dailyTasksFor(data, today)
