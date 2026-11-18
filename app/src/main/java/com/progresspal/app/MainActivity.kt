@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
         AppStore.init(applicationContext)
         com.progresspal.app.data.SimpleTimeTracker.init(applicationContext)
         com.progresspal.app.data.Planner.init(applicationContext)
+        com.progresspal.app.data.DailyOrder.init(applicationContext)
         handleAuth(intent)
         setContent {
             ProgressPalTheme {

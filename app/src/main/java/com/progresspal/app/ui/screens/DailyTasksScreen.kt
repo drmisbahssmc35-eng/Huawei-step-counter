@@ -1,6 +1,14 @@
 package com.progresspal.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -185,30 +193,102 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                     modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                 )
             }
-            entries.forEachIndexed { i, e ->
+            // Drag the ≡ handle to reorder; the order is remembered.
+            val order by com.progresspal.app.data.DailyOrder.ids.collectAsStateWithLifecycle()
+            val ordered = remember(entries, order) { com.progresspal.app.data.DailyOrder.sort(entries) { it.task.id } }
+            val latest by androidx.compose.runtime.rememberUpdatedState(ordered)
+            var dragId by remember { mutableStateOf<String?>(null) }
+            var dragDy by remember { mutableFloatStateOf(0f) }
+            val heights = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+            // Where the dragged task would land, from how far it has moved.
+            fun target(): Int {
+                val list = latest
+                val from = list.indexOfFirst { it.task.id == dragId }
+                if (from < 0) return -1
+                var to = from; var dy = dragDy
+                while (dy > 0 && to < list.lastIndex) {
+                    val h = heights[list[to + 1].task.id] ?: break
+                    if (dy < h / 2f) break
+                    dy -= h; to++
+                }
+                while (dy < 0 && to > 0) {
+                    val h = heights[list[to - 1].task.id] ?: break
+                    if (-dy < h / 2f) break
+                    dy += h; to--
+                }
+                return to
+            }
+            val dragFrom = ordered.indexOfFirst { it.task.id == dragId }
+            val dragTo = if (dragId != null) target() else -1
+            val dragH = dragId?.let { heights[it] } ?: 0
+
+            ordered.forEachIndexed { i, e ->
                 val toggle: () -> Unit = {
                     if (e.isRecurring) AppStore.toggleDateTask(e.task.id, selected) else AppStore.toggleTask(e.project.id, e.task.id)
                     syncChallenge(e.task.id, !e.completed)
                 }
                 val delete: () -> Unit = { if (e.isRecurring) deleteChoice = e else AppStore.deleteTask(e.project.id, e.task.id) }
+                val edit: (Task) -> Unit = { updated ->
+                    if (e.isRecurring) editChoice = e to updated else AppStore.editTask(e.project.id, e.task.id) { updated }
+                }
                 val goal = com.progresspal.app.data.SimpleTimeTracker.goalFor(e.task.id, sttCache)
                 val act = goal?.let { g -> sttCache.activities.firstOrNull { it.id == g.activityId } }
-                if (goal != null && act != null) {
-                    // Simple Time Tracker-style bar that fills with tracked time towards the goal.
-                    GoalBar(e.task.title, act, goal, selected, e.completed, sttCache, onToggleDone = toggle, onLongPress = { barMenu = e })
-                    Spacer(Modifier.height(6.dp))
-                } else {
-                    TaskRow(
-                        task = e.task, completed = e.completed, color = e.project.color.color(),
-                        badge = e.project.name,
-                        onToggle = toggle,
-                        onDelete = delete,
-                        onEdit = { updated ->
-                            if (e.isRecurring) editChoice = e to updated else AppStore.editTask(e.project.id, e.task.id) { updated }
-                        },
-                    )
+                val dragging = e.task.id == dragId
+                // Others slide out of the way while one is dragged.
+                val shift = when {
+                    dragId == null || dragging -> 0f
+                    dragFrom < dragTo && i in (dragFrom + 1)..dragTo -> -dragH.toFloat()
+                    dragFrom > dragTo && i in dragTo until dragFrom -> dragH.toFloat()
+                    else -> 0f
                 }
-                if (i < entries.lastIndex && (goal == null || act == null)) Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Pal.c.border.copy(alpha = .5f)))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .zIndex(if (dragging) 1f else 0f)
+                        .graphicsLayer {
+                            translationY = if (dragging) dragDy else shift
+                            shadowElevation = if (dragging) 16f else 0f
+                        }
+                        .onGloballyPositioned { heights[e.task.id] = it.size.height },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.DragHandle, "Drag to reorder",
+                        tint = if (dragging) Pal.c.primary else Pal.c.mutedForeground,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .pointerInput(e.task.id) {
+                                detectDragGestures(
+                                    onDragStart = { dragId = e.task.id; dragDy = 0f },
+                                    onDragEnd = {
+                                        val list = latest
+                                        val from = list.indexOfFirst { it.task.id == dragId }
+                                        val to = target()
+                                        if (from >= 0 && to >= 0 && from != to) {
+                                            val ids = list.map { it.task.id }.toMutableList()
+                                            ids.add(to, ids.removeAt(from))
+                                            com.progresspal.app.data.DailyOrder.save(ids)
+                                        }
+                                        dragId = null; dragDy = 0f
+                                    },
+                                    onDragCancel = { dragId = null; dragDy = 0f },
+                                ) { change, amount -> change.consume(); dragDy += amount.y }
+                            },
+                    )
+                    Column(Modifier.weight(1f)) {
+                        if (goal != null && act != null) {
+                            // Simple Time Tracker-style bar that fills with tracked time towards the goal.
+                            GoalBar(e.task, act, goal, selected, e.completed, sttCache, onToggleDone = toggle, onEdit = edit, onLongPress = { barMenu = e })
+                            Spacer(Modifier.height(6.dp))
+                        } else {
+                            TaskRow(
+                                task = e.task, completed = e.completed, color = e.project.color.color(),
+                                badge = e.project.name, onToggle = toggle, onDelete = delete, onEdit = edit,
+                            )
+                            if (i < ordered.lastIndex) Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Pal.c.border.copy(alpha = .5f)))
+                        }
+                    }
+                }
             }
         }
 
@@ -531,15 +611,19 @@ private fun GoalProgress(g: com.progresspal.app.data.TaskGoal, date: LocalDate, 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun GoalBar(
-    title: String,
+    task: Task,
     a: com.progresspal.app.data.SttActivity,
     g: com.progresspal.app.data.TaskGoal,
     date: LocalDate,
     completed: Boolean,
     stt: com.progresspal.app.data.SttCache,
     onToggleDone: () -> Unit,
+    onEdit: (Task) -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val title = task.title
+    var editing by remember { mutableStateOf(false) }
+    if (editing) com.progresspal.app.ui.components.TaskEditDialog(task, { editing = false }) { onEdit(it); editing = false }
     val now by com.progresspal.app.ui.components.rememberNow()
     val ms = com.progresspal.app.data.SimpleTimeTracker.trackedMs(g.activityId, date, stt, now)
     val goalMs = (g.minutes.coerceAtLeast(1)) * 60_000L
@@ -579,6 +663,9 @@ private fun GoalBar(
                     (if (running) "▶ " else "") + "${fmtMin(ms)} / ${g.minutes}m · ${if (completed) "Done" else "${pct.coerceAtMost(999)}%"}",
                     color = white.copy(alpha = .9f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                 )
+            }
+            androidx.compose.material3.IconButton(onClick = { editing = true }, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Filled.Edit, "Edit", tint = white, modifier = Modifier.size(18.dp))
             }
             // Tick by hand (e.g. finished in 5 of 10 minutes).
             Box(
