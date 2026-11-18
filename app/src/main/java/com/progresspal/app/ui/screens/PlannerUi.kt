@@ -174,7 +174,7 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") 
 
 /** Full-screen Activity List, same look as Simple Time Tracker. */
 @Composable
-private fun ActivityPicker(activities: List<SttActivity>, selectedId: Long?, onPick: (SttActivity) -> Unit, onDismiss: () -> Unit) {
+fun ActivityPicker(activities: List<SttActivity>, selectedId: Long?, onPick: (SttActivity) -> Unit, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Pal.c.background).padding(top = 12.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {

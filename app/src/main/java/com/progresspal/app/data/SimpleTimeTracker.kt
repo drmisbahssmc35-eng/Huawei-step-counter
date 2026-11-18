@@ -49,6 +49,10 @@ data class SttRecord(
     val endedAt: Long,
 )
 
+/** A task tied to an activity with a daily goal: done once [minutes] are tracked that day. */
+@Serializable
+data class TaskGoal(val activityId: Long, val minutes: Int)
+
 @Serializable
 data class SttCache(
     val activities: List<SttActivity> = emptyList(),
@@ -70,6 +74,8 @@ data class SttCache(
     val autoDone: List<String> = emptyList(),
     /** The one-time clean-up of tasks auto-added by an earlier version was handled. */
     val cleanupDone: Boolean = false,
+    /** Progress Pal task id → its activity and daily goal (set when adding from the Activity List). */
+    val taskGoals: Map<String, TaskGoal> = emptyMap(),
 )
 
 enum class SttStatus { UNKNOWN, SYNCING, OK, NOT_INSTALLED, NO_ANSWER }
@@ -184,7 +190,7 @@ object SimpleTimeTracker {
                     list.filter { it.type == "TRACKED" && it.id !in c.hidden }.sortedBy { it.startedAt }
             }
             c = c.copy(days = days2, lastSync = System.currentTimeMillis())
-            if (c.syncDailyTasks && c.autoCompleteMinutes > 0 && syncedDates.isNotEmpty()) {
+            if (syncedDates.isNotEmpty()) {
                 val snapshot = c
                 c = withContext(Dispatchers.Main) { autoComplete(snapshot, syncedDates) }
             }
@@ -250,25 +256,35 @@ object SimpleTimeTracker {
     }
 
     /** Ticks the paired Daily Task on each day its activity was tracked long enough. */
+    /** Tracked time on [activityId] during [date], running timer included. */
+    fun trackedMs(activityId: Long, date: LocalDate, c: SttCache = _cache.value, now: Long = System.currentTimeMillis()): Long {
+        val zone = java.time.ZoneId.systemDefault()
+        var ms = c.days[date.toString()].orEmpty().filter { it.activityId == activityId }.sumOf { it.endedAt - it.startedAt }
+        if (date == LocalDate.now()) {
+            val dayStart = date.atStartOfDay(zone).toInstant().toEpochMilli()
+            c.running.filter { it.id == activityId }.forEach { ms += now - maxOf(it.startedAt, dayStart) }
+        }
+        return ms
+    }
+
+    /**
+     * Ticks a task on each day its activity reached the goal: the task's own goal when it was
+     * added from the Activity List, otherwise the general minimum for name-paired tasks.
+     * Each task/day is ticked once, so a manual un-tick is respected.
+     */
     private fun autoComplete(c: SttCache, dates: List<LocalDate>): SttCache {
-        val minMs = c.autoCompleteMinutes * 60_000L
+        val rules = mutableListOf<Triple<String, Long, Long>>() // taskId, activityId, minimum ms
+        c.taskGoals.forEach { (tid, g) -> if (g.minutes > 0) rules += Triple(tid, g.activityId, g.minutes * 60_000L) }
+        if (c.syncDailyTasks && c.autoCompleteMinutes > 0) {
+            c.linkedTasks.forEach { (aid, tid) -> if (tid !in c.taskGoals) rules += Triple(tid, aid, c.autoCompleteMinutes * 60_000L) }
+        }
+        if (rules.isEmpty()) return c
         val done = c.autoDone.toMutableSet()
         val today = LocalDate.now()
         val now = System.currentTimeMillis()
-        val zone = java.time.ZoneId.systemDefault()
         dates.forEach { date ->
-            val totals = HashMap<Long, Long>()
-            c.days[date.toString()].orEmpty().forEach { r ->
-                val id = r.activityId ?: return@forEach
-                totals[id] = (totals[id] ?: 0L) + (r.endedAt - r.startedAt)
-            }
-            if (date == today) {
-                val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
-                c.running.forEach { r -> totals[r.id] = (totals[r.id] ?: 0L) + (now - maxOf(r.startedAt, dayStart)) }
-            }
-            totals.forEach { (activityId, ms) ->
-                if (ms < minMs) return@forEach
-                val taskId = c.linkedTasks[activityId] ?: return@forEach
+            rules.forEach { (taskId, activityId, minMs) ->
+                if (trackedMs(activityId, date, c, now) < minMs) return@forEach
                 val key = "$taskId:$date"
                 if (key in done) return@forEach
                 val project = AppStore.data.value.projects.firstOrNull { p -> p.tasks.any { it.id == taskId } } ?: return@forEach
@@ -282,6 +298,13 @@ object SimpleTimeTracker {
         // Forget entries older than 60 days.
         val cutoff = today.minusDays(60).toString()
         return c.copy(autoDone = done.filter { it.substringAfterLast(':') >= cutoff })
+    }
+
+    /** Ties a new task to an activity with a daily goal (0 = tick by hand only). */
+    fun setTaskGoal(taskId: String, activityId: Long, minutes: Int) {
+        val c = _cache.value
+        save(c.copy(taskGoals = c.taskGoals + (taskId to TaskGoal(activityId, minutes))))
+        syncSoon(1)
     }
 
     fun setAutoCompleteMinutes(m: Int) {

@@ -97,6 +97,9 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
     var pickTime by remember { mutableStateOf(false) }
     var editChoice by remember { mutableStateOf<Pair<DailyEntry, Task>?>(null) }
     var deleteChoice by remember { mutableStateOf<DailyEntry?>(null) }
+    var pickActivity by remember { mutableStateOf(false) }
+    var goalFor by remember { mutableStateOf<com.progresspal.app.data.SttActivity?>(null) }
+    val sttCache by com.progresspal.app.data.SimpleTimeTracker.cache.collectAsStateWithLifecycle()
 
     fun submit() {
         if (title.isBlank()) return
@@ -135,12 +138,16 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         title, { title = it }, singleLine = true, modifier = Modifier.weight(1f),
-                        placeholder = { Text(if (isFuture) "Add a task for this date..." else "Add a repeating task...") },
+                        placeholder = { Text(if (isFuture) "Type a task, or tap + for activities" else "Type a task, or tap + for activities") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { submit() }),
                     )
                     Spacer(Modifier.width(8.dp))
-                    FilledIconButton(onClick = { submit() }, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Filled.Add, "Add task") }
+                    FilledIconButton(
+                        // Empty box → choose from the Activity List; typed name → add it as before.
+                        onClick = { if (title.isBlank()) pickActivity = true else submit() },
+                        shape = RoundedCornerShape(10.dp),
+                    ) { Icon(Icons.Filled.Add, "Add task") }
                 }
                 FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (isToday) {
@@ -188,6 +195,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
                         if (e.isRecurring) editChoice = e to updated else AppStore.editTask(e.project.id, e.task.id) { updated }
                     },
                 )
+                sttCache.taskGoals[e.task.id]?.let { g -> GoalProgress(g, selected, e.completed, sttCache) }
                 if (i < entries.lastIndex) Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Pal.c.border.copy(alpha = .5f)))
             }
         }
@@ -205,6 +213,15 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
 
     if (pickTime) TimePickerModal(dueTime, { pickTime = false }) { dueTime = it }
 
+    if (pickActivity) ActivityPicker(
+        activities = sttCache.activities,
+        selectedId = null,
+        onPick = { goalFor = it; pickActivity = false },
+        onDismiss = { pickActivity = false },
+    )
+    goalFor?.let { a ->
+        AddFromActivityDialog(a, selected, isFuture, dueTime, onChange = { pickActivity = true; goalFor = null }) { goalFor = null }
+    }
     editChoice?.let { (e, updated) ->
         ChoiceDialog(
             title = "Edit Repeating Task",
@@ -363,4 +380,102 @@ private fun AutoAddedCleanup(data: AppData) {
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { review = false }) { Text("Cancel") } },
     )
+}
+
+/** After picking an activity: daily goal + repeat, then the task is added and tied to the activity. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AddFromActivityDialog(
+    a: com.progresspal.app.data.SttActivity,
+    date: LocalDate,
+    isFuture: Boolean,
+    dueTime: LocalTime,
+    onChange: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var goal by remember { mutableStateOf(10) }
+    var repeat by remember { mutableStateOf(if (isFuture) Repeat.ONCE else Repeat.DAILY) }
+    var days by remember { mutableStateOf(listOf<String>()) }
+    val goals = listOf(5, 10, 15, 20, 30, 45, 60, 90, 120)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Pal.c.card,
+        title = { Text("Add daily task", color = Pal.c.foreground) },
+        text = {
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                com.progresspal.app.ui.components.SttActivityRow(a, onClick = onChange) {
+                    Text("Change", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .85f), fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Daily goal — done automatically when tracked this long", fontSize = 13.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    goals.forEach { m -> GoalChip(if (m < 60) "${m}m" else if (m % 60 == 0) "${m / 60}h" else "${m / 60}h ${m % 60}m", goal == m) { goal = m } }
+                    GoalChip("No goal", goal == 0) { goal = 0 }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Repeat", fontSize = 13.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                if (isFuture) Text("Once · ${date.format("EEE, d MMM")}", color = Pal.c.foreground)
+                else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(Repeat.DAILY, Repeat.WEEKLY, Repeat.MONTHLY, Repeat.CUSTOM, Repeat.ONCE).forEach { r ->
+                        GoalChip(if (r == Repeat.ONCE) "Today only" else r.label, repeat == r) { repeat = r }
+                    }
+                }
+                if (repeat == Repeat.CUSTOM) {
+                    Spacer(Modifier.height(8.dp))
+                    DayChips(days) { d -> days = if (d in days) days - d else days + d }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                val r = if (repeat == Repeat.CUSTOM && days.isEmpty()) Repeat.DAILY else repeat
+                val deadline = if (r == Repeat.ONCE) date.atTime(dueTime).atZone(com.progresspal.app.data.zone()).toInstant().toEpochMilli() else null
+                val id = AppStore.addDailyTaskWith(a.name, r, deadline, dueTime.toString(), if (r == Repeat.CUSTOM) days else null)
+                com.progresspal.app.data.SimpleTimeTracker.setTaskGoal(id, a.id, goal)
+                onDismiss()
+            }) { Text("Add") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun GoalChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    val c = Pal.c.primary
+    Text(
+        text,
+        Modifier.clip(RoundedCornerShape(50))
+            .background(if (selected) c else c.copy(alpha = .12f))
+            .border(1.dp, c.copy(alpha = if (selected) 1f else .4f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        color = if (selected) androidx.compose.ui.graphics.Color.White else Pal.c.foreground, fontSize = 14.sp,
+    )
+}
+
+/** "⏱ 6m / 10m" with a bar under a task that has an activity goal. */
+@Composable
+private fun GoalProgress(g: com.progresspal.app.data.TaskGoal, date: LocalDate, completed: Boolean, stt: com.progresspal.app.data.SttCache) {
+    val now by com.progresspal.app.ui.components.rememberNow()
+    val ms = com.progresspal.app.data.SimpleTimeTracker.trackedMs(g.activityId, date, stt, now)
+    val a = stt.activities.firstOrNull { it.id == g.activityId }
+    val color = a?.let { androidx.compose.ui.graphics.Color(it.color.toInt()) } ?: Pal.c.primary
+    val mins = (ms / 60_000).toInt()
+    val frac = if (g.minutes <= 0) 0f else (ms.toFloat() / (g.minutes * 60_000f)).coerceIn(0f, 1f)
+    val running = stt.running.any { it.id == g.activityId }
+    Column(Modifier.fillMaxWidth().padding(start = 44.dp, end = 12.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "⏱ " + (if (running) "▶ " else "") + "${mins}m" + (if (g.minutes > 0) " / ${g.minutes}m" else " tracked") +
+                    (a?.let { "  ·  ${it.name}" } ?: ""),
+                fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.weight(1f), maxLines = 1,
+            )
+            if (!completed && g.minutes > 0 && frac < 1f) Text("tick ✓ to finish early", fontSize = 10.sp, color = Pal.c.mutedForeground)
+        }
+        if (g.minutes > 0) Box(Modifier.padding(top = 3.dp).fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(Pal.c.muted)) {
+            Box(Modifier.fillMaxWidth(if (completed) 1f else frac).height(5.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        }
+    }
 }

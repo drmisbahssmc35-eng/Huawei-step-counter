@@ -193,6 +193,17 @@ object AppStore {
         updateProject(projectId) { it.copy(tasks = it.tasks + t) }
     }
 
+    /** Adds a task to "Daily Tasks" (any repeat) and returns its id. */
+    fun addDailyTaskWith(title: String, repeat: Repeat, deadline: Long?, dueTime: String?, repeatDays: List<String>?): String {
+        val pid = dailyProjectId()
+        val t = Task(
+            id = newId(), title = title, createdAt = now(), deadline = deadline, repeat = repeat,
+            dueTime = dueTime, repeatDays = repeatDays?.takeIf { it.isNotEmpty() },
+        )
+        updateProject(pid) { it.copy(tasks = it.tasks + t) }
+        return t.id
+    }
+
     /** Adds a task that repeats every day to "Daily Tasks" and returns its id. */
     fun addDailyTask(title: String): String {
         val pid = dailyProjectId()
