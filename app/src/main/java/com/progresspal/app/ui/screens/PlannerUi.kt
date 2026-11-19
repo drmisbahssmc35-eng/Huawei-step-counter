@@ -77,6 +77,7 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") 
     var minutes by remember { mutableIntStateOf(((initial.end - initial.start) / 60_000).toInt().coerceAtLeast(5)) }
     var repeat by remember { mutableStateOf(series?.repeat ?: "NONE") }
     var days by remember { mutableStateOf(series?.days ?: emptyList()) }
+    var note by remember { mutableStateOf(series?.note ?: initial.note) }
     var showFrom by remember { mutableStateOf(false) }
     var showTo by remember { mutableStateOf(false) }
 
@@ -123,6 +124,13 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") 
                     DurationChoices.forEach { m -> Chip(fmtMinutes(m), minutes == m) { minutes = m } }
                 }
 
+                Label("Note (optional)")
+                androidx.compose.material3.OutlinedTextField(
+                    value = note, onValueChange = { note = it.take(300) },
+                    placeholder = { Text("e.g. finish chapter 3") },
+                    modifier = Modifier.fillMaxWidth(), maxLines = 3,
+                )
+
                 Label("Repeat")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Repeats.forEach { (key, label) -> Chip(label, repeat == key) { repeat = key } }
@@ -152,6 +160,7 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") 
                         activityId = a.id, activityName = a.name, color = a.color,
                         repeat = if (repeat == "CUSTOM" && days.isEmpty()) "NONE" else repeat,
                         days = if (repeat == "CUSTOM") days else emptyList(),
+                        note = note.trim(),
                     )
                 )
                 onDismiss()

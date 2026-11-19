@@ -401,7 +401,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                 PlanState.UPCOMING -> fmtMinutes(((p.end - p.start) / 60_000).toInt())
             },
             sub = clock(p.start, is24).substringBeforeLast(":") + " - " + clock(p.end, is24).substringBeforeLast(":") +
-                listOfNotNull(p.subtitle, p.activityName?.let { "⏱ $it" }).let { if (it.isEmpty()) "" else "\n" + it.joinToString(" · ") },
+                listOfNotNull(p.note.takeIf { it.isNotBlank() }?.let { "📝 $it" }, p.subtitle).let { if (it.isEmpty()) "" else "\n" + it.joinToString(" · ") },
             column = 1,
             alpha = when (st) { PlanState.MISSED -> 0.35f; PlanState.UPCOMING -> 0.9f; else -> 1f },
             badge = when (st) { PlanState.DONE -> "✓"; PlanState.MISSED -> "✗"; else -> "" },
@@ -465,7 +465,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                             ?: cache.activities.firstOrNull { it.name.equals(plan.title, true) }
                         if (act == null) toast(ctx, "Link this plan to an activity first (tap it → \"Counts as done when I track\")")
                         else if (SimpleTimeTracker.isRunning(act.id)) toast(ctx, "${act.name} is already running")
-                        else { SimpleTimeTracker.start(act); toast(ctx, "Started ${act.name}") }
+                        else { SimpleTimeTracker.start(act, plan.note); toast(ctx, "Started ${act.name}") }
                     }
                 },
                 onSwipeDay = { d -> onDay(dayEpoch + d) },

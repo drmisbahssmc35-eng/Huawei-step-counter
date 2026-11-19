@@ -32,6 +32,8 @@ data class PlanItem(
     val days: List<String> = emptyList(),
     /** Dates ("yyyy-MM-dd") where a repeating plan was removed for that day only. */
     val skip: List<String> = emptyList(),
+    /** Optional note written when planning. */
+    val note: String = "",
 )
 
 @Serializable

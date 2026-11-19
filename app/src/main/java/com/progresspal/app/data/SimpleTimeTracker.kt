@@ -426,12 +426,15 @@ object SimpleTimeTracker {
      * Start [a] in Simple Time Tracker. In switch mode the running activities are stopped first.
      * Does nothing if [a] is already running.
      */
-    fun start(a: SttActivity) {
+    fun start(a: SttActivity, comment: String = "") {
         if (isRunning(a.id)) return
         val c = _cache.value
         val switching = c.switchMode && c.running.isNotEmpty()
         if (switching) appContext.sendBroadcast(command(STOP_ALL))
-        appContext.sendBroadcast(command(START).putExtra("extra_activity_name", a.name))
+        appContext.sendBroadcast(
+            command(START).putExtra("extra_activity_name", a.name)
+                .apply { if (comment.isNotBlank()) putExtra("extra_record_comment", comment) }
+        )
         val now = System.currentTimeMillis()
         save(c.copy(running = (if (switching) emptyList() else c.running) + SttRunning(a.id, now)))
         scope.launch { delay(900); sync(days = 1) }
