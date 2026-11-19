@@ -210,18 +210,24 @@ class FocusWidgetService : RemoteViewsService() {
                     else -> "${hm(elapsed)} / 3h · ${hm(left)} left"
                 }
 
-                // Plans in this part and how many are done.
+                // Plan vs actual in this part: of the time planned inside these 3 hours, how much
+                // was actually spent on the planned activity at the planned time (fills as you go).
                 val inPart = plans.filter { it.end > from && it.start < to }
-                val done = inPart.count { com.progresspal.app.data.planState(it, stt, now).first == com.progresspal.app.data.PlanState.DONE }
-                val planPct = if (inPart.isEmpty()) 0 else done * 100 / inPart.size
-
+                var plannedMs = 0L; var matchedMs = 0L
+                inPart.forEach { pl ->
+                    val clip = pl.copy(start = maxOf(pl.start, from), end = minOf(pl.end, to))
+                    plannedMs += clip.end - clip.start
+                    matchedMs += com.progresspal.app.data.planCovered(clip, stt, now)
+                }
+                val planPct = if (plannedMs <= 0) 0 else (matchedMs * 100 / plannedMs).toInt().coerceIn(0, 100)
                 RemoteViews(context.packageName, R.layout.focus_item_segment).apply {
                     setTextViewText(R.id.seg_time_label, "⏱ ${label(i * 3)} – ${label(i * 3 + 3)}" + if (now in from until to) "  · now" else "")
                     setTextViewText(R.id.seg_time_value, timeText)
                     setProgressBar(R.id.seg_time_bar, 100, timePct, false)
                     setTextViewText(
                         R.id.seg_plan_label,
-                        if (inPart.isEmpty()) "🎯 No plans in these 3 hours" else "🎯 Plans $done/${inPart.size} done",
+                        if (inPart.isEmpty()) "🎯 No plans in these 3 hours"
+                        else "🎯 Matched ${hm(matchedMs)} of ${hm(plannedMs)} planned",
                     )
                     setTextViewText(R.id.seg_plan_value, if (inPart.isEmpty()) "" else "$planPct%")
                     setProgressBar(R.id.seg_plan_bar, 100, planPct, false)
