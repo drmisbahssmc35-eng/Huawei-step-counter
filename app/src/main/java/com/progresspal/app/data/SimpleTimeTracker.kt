@@ -199,7 +199,8 @@ object SimpleTimeTracker {
                 val list = runCatching { json.decodeFromString<List<SttRecord>>(data) }.getOrNull() ?: continue
                 syncedDates += today.plusDays(shift.toLong())
                 days2[today.plusDays(shift.toLong()).toString()] =
-                    list.filter { it.type == "TRACKED" && it.id !in c.hidden }.sortedBy { it.startedAt }
+                    // Skip hidden ones and 0-second leftovers from switching a running activity.
+                    list.filter { it.type == "TRACKED" && it.id !in c.hidden && it.endedAt - it.startedAt >= 1000 }.sortedBy { it.startedAt }
             }
             c = c.copy(days = days2, lastSync = System.currentTimeMillis())
             if (syncedDates.isNotEmpty()) {
@@ -438,6 +439,29 @@ object SimpleTimeTracker {
 
     /** Tile tap: stop if running, otherwise start (switching if switch mode is on). */
     fun tap(a: SttActivity) = if (isRunning(a.id)) toggle(a) else start(a)
+
+    /**
+     * Turns the running [fromId] into [to], keeping its start time (like switching it on Simple
+     * Time Tracker's timeline): the old activity is stopped at its own start (an empty record) and
+     * [to] is started at that same time.
+     * Returns false when [to] is already running.
+     */
+    fun convertRunning(fromId: Long, to: SttActivity): Boolean {
+        val c = _cache.value
+        val r = c.running.firstOrNull { it.id == fromId } ?: return false
+        if (fromId == to.id) return true
+        if (c.running.any { it.id == to.id }) return false
+        val from = c.activities.firstOrNull { it.id == fromId } ?: return false
+        appContext.sendBroadcast(
+            command(STOP).putExtra("extra_activity_name", from.name).putExtra("extra_record_time_ended", r.startedAt.toString())
+        )
+        appContext.sendBroadcast(
+            command(START).putExtra("extra_activity_name", to.name).putExtra("extra_record_time_started", r.startedAt.toString())
+        )
+        save(c.copy(running = c.running.map { if (it.id == fromId) SttRunning(to.id, r.startedAt) else it }))
+        scope.launch { delay(1200); sync(days = 1) }
+        return true
+    }
 
     fun stopAll() {
         appContext.sendBroadcast(command(STOP_ALL))

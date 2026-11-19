@@ -375,6 +375,8 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
     val donePlans = plans.filter { states[it.id]?.first == PlanState.DONE }
     var editing by remember { mutableStateOf<Pair<PlanItem, Boolean>?>(null) }
     var deleting by remember { mutableStateOf<Any?>(null) }
+    var converting by remember { mutableStateOf<Block?>(null) }
+    var finishedTap by remember { mutableStateOf<Block?>(null) }
 
     val items = blocks.map { b ->
         // An actual block that fulfils a plan gets a ✓.
@@ -429,7 +431,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                     val missed = states.values.count { it.first == PlanState.MISSED }
                     val left = plans.size - done - missed
                     Text(
-                        if (plans.isEmpty()) "Tap the Planner column to plan · double-tap to start · hold to delete" else "Plan: $done ✓ · $missed ✗ · $left to go",
+                        if (plans.isEmpty()) "Tap a running block to switch it · tap the Planner column to plan · hold to delete" else "Plan: $done ✓ · $missed ✗ · $left to go",
                         fontSize = 12.sp, color = Pal.c.mutedForeground,
                     )
                 }
@@ -447,7 +449,13 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                 labelColor = Pal.c.mutedForeground,
                 onItem = { item ->
                     val plan = item.key as? PlanItem
-                    if (plan != null) editing = plan to false else onOpenTimers()
+                    val blk = item.key as? Block
+                    when {
+                        plan != null -> editing = plan to false
+                        // Running block → switch it to another activity, keeping its start time.
+                        blk != null && blk.live -> converting = blk
+                        else -> finishedTap = blk
+                    }
                 },
                 onItemLongPress = { item -> deleting = item.key },
                 onItemDoubleTap = { item ->
@@ -491,6 +499,43 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
     }
     editing?.let { (p, isNew) -> PlanEditor(p, isNew, app, cache) { editing = null } }
     deleting?.let { key -> DeleteDialog(key, is24, cache) { deleting = null } }
+    converting?.let { b ->
+        val ctx2 = LocalContext.current
+        ActivityPicker(
+            activities = cache.activities,
+            selectedId = b.activityId,
+            title = "Switch ${b.name} to…",
+            onPick = { to ->
+                val fromId = b.activityId
+                if (fromId == null || !SimpleTimeTracker.convertRunning(fromId, to)) toast(ctx2, "${to.name} is already running")
+                else toast(ctx2, "Switched to ${to.name}")
+                converting = null
+            },
+            onDismiss = { converting = null },
+        )
+    }
+    finishedTap?.let { b ->
+        val ctx3 = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { finishedTap = null },
+            containerColor = Pal.c.card,
+            title = { Text(b.name, color = Pal.c.foreground) },
+            text = {
+                Text(
+                    "Only a running activity can be switched from here. Simple Time Tracker doesn't let other apps " +
+                        "change a finished record, so open it there to change this one.",
+                    color = Pal.c.foreground, fontSize = 14.sp,
+                )
+            },
+            confirmButton = { TextButton(onClick = { SimpleTimeTracker.openApp(ctx3); finishedTap = null }) { Text("Open Simple Time Tracker") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { finishedTap = null; onOpenTimers() }) { Text("Activity List") }
+                    TextButton(onClick = { finishedTap = null }) { Text("Close") }
+                }
+            },
+        )
+    }
 }
 
 /** Long-press menu: delete a plan, or hide / stop an actual block. */

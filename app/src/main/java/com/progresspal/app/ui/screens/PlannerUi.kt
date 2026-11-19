@@ -174,11 +174,11 @@ fun PlanEditor(initial: PlanItem, isNew: Boolean, @Suppress("UNUSED_PARAMETER") 
 
 /** Full-screen Activity List, same look as Simple Time Tracker. */
 @Composable
-fun ActivityPicker(activities: List<SttActivity>, selectedId: Long?, onPick: (SttActivity) -> Unit, onDismiss: () -> Unit) {
+fun ActivityPicker(activities: List<SttActivity>, selectedId: Long?, onPick: (SttActivity) -> Unit, onDismiss: () -> Unit, title: String = "Choose an activity") {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Pal.c.background).padding(top = 12.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Choose an activity", Modifier.weight(1f), color = Pal.c.foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(title, Modifier.weight(1f), color = Pal.c.foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
             if (activities.isEmpty()) {
