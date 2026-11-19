@@ -172,6 +172,7 @@ fun AnalyticsScreen(data: AppData, onBack: () -> Unit) {
         ScreenHeader("Analytics", "Your productivity insights", Icons.Filled.BarChart, Pal.c.primary, onBack)
 
         ProductivityLevelSection(data)
+        PlanningScoreSection()
 
         // ── Today: day progress + task progress ──
         run {

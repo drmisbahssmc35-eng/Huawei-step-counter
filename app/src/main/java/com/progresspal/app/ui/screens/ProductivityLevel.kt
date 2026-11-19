@@ -356,3 +356,70 @@ private fun ColumnChart(bars: List<LBar>, colors: List<Color>, onTap: (LBar) -> 
         }
     }
 }
+
+/** Planning Score: how much of the planned time was spent on the planned activity, in %. */
+@Composable
+fun PlanningScoreSection() {
+    val planner by Planner.data.collectAsStateWithLifecycle()
+    val stt by SimpleTimeTracker.cache.collectAsStateWithLifecycle()
+    val today = LocalDate.now()
+    val now = System.currentTimeMillis()
+    data class Row7(val day: LocalDate, val s: com.progresspal.app.data.PlanScore)
+    val todayS = remember(planner, stt) { com.progresspal.app.data.planScoreOn(planner, stt, today, now) }
+    val yest = remember(planner, stt) { com.progresspal.app.data.planScoreOn(planner, stt, today.minusDays(1), now) }
+    val week = remember(planner, stt) { com.progresspal.app.data.planScoreBetween(planner, stt, today.minusDays(6), today, now) }
+    val month = remember(planner, stt) { com.progresspal.app.data.planScoreBetween(planner, stt, today.minusDays(29), today, now) }
+    val life = remember(planner, stt) {
+        com.progresspal.app.data.firstPlanDay(planner)?.let { com.progresspal.app.data.planScoreBetween(planner, stt, minOf(it, today), today, now) }
+            ?: com.progresspal.app.data.PlanScore()
+    }
+    val last14 = remember(planner, stt) { (13 downTo 0).map { today.minusDays(it.toLong()) }.map { Row7(it, com.progresspal.app.data.planScoreOn(planner, stt, it, now)) } }
+    fun pct(s: com.progresspal.app.data.PlanScore) = s.percent?.let { "$it%" } ?: "–"
+    fun hm(ms: Long): String { val m = ms / 60_000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+    val accent = Color(0xFFFF4FA3)
+
+    AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFFFF4FA3), Color(0xFFFFC400)))).padding(horizontal = 9.dp, vertical = 5.dp)) {
+                Text("🎯", fontSize = 16.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Planning Score", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Pal.c.foreground)
+                Text("Share of planned time spent on the planned activity, at the planned time", fontSize = 11.sp, color = Pal.c.mutedForeground)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(pct(todayS), color = accent, fontSize = 48.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.padding(bottom = 8.dp)) {
+                Text("today", fontSize = 13.sp, color = Pal.c.mutedForeground)
+                Text(
+                    if (todayS.plannedMs > 0) "${hm(todayS.matchedMs)} of ${hm(todayS.plannedMs)} planned so far" else "No plan has started yet today",
+                    fontSize = 12.sp, color = Pal.c.mutedForeground,
+                )
+            }
+        }
+        // Score bar for today.
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.c.muted)) {
+            Box(
+                Modifier.fillMaxWidth(((todayS.percent ?: 0) / 100f)).height(10.dp)
+                    .background(Brush.horizontalGradient(listOf(Color(0xFFFF4FA3), Color(0xFFFFC400))))
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile("Yesterday", pct(yest), Color(0xFF2979FF), Modifier.weight(1f))
+            Tile("7 days", pct(week), Color(0xFF00BFA5), Modifier.weight(1f))
+            Tile("30 days", pct(month), Color(0xFFFF6D00), Modifier.weight(1f))
+            Tile("Lifetime", pct(life), Violet, Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Last 14 days", fontSize = 12.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
+        ColumnChart(
+            last14.map { r -> LBar(r.day.format(DateTimeFormatter.ofPattern("EEE")).take(2), r.day.dayOfMonth.toString(), r.s.percent ?: 0, r.day == today, r.day) },
+            listOf(Color(0xFFFFC400), Color(0xFFFF4FA3)),
+        ) {}
+    }
+}

@@ -162,3 +162,31 @@ fun occurrencesOn(data: PlannerData, date: java.time.LocalDate): List<PlanItem> 
         p.copy(start = start, end = start + (p.end - p.start))
     }.sortedBy { it.start }
 }
+
+/** How well a day went to plan: planned time vs the part of it spent on the planned activity. */
+data class PlanScore(val plannedMs: Long = 0, val matchedMs: Long = 0) {
+    /** 0–100, or null when nothing was planned (yet). */
+    val percent: Int? get() = if (plannedMs <= 0) null else ((matchedMs * 100) / plannedMs).toInt().coerceIn(0, 100)
+    operator fun plus(o: PlanScore) = PlanScore(plannedMs + o.plannedMs, matchedMs + o.matchedMs)
+}
+
+/**
+ * Planning score for one day: for every plan that has started, the planned time so far, and how
+ * much of exactly that time was tracked on the plan's activity (same task, same time).
+ */
+fun planScoreOn(planner: PlannerData, stt: SttCache, date: java.time.LocalDate, now: Long = System.currentTimeMillis()): PlanScore =
+    occurrencesOn(planner, date).fold(PlanScore()) { acc, p ->
+        val end = minOf(p.end, now)
+        if (end <= p.start) acc
+        else acc + PlanScore(end - p.start, planCovered(p.copy(end = end), stt, now))
+    }
+
+fun planScoreBetween(planner: PlannerData, stt: SttCache, from: java.time.LocalDate, to: java.time.LocalDate, now: Long = System.currentTimeMillis()): PlanScore {
+    var d = from; var s = PlanScore()
+    while (!d.isAfter(to)) { s += planScoreOn(planner, stt, d, now); d = d.plusDays(1) }
+    return s
+}
+
+/** First day anything was planned (for lifetime totals). */
+fun firstPlanDay(planner: PlannerData): java.time.LocalDate? =
+    planner.plans.minOfOrNull { Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalDate() }

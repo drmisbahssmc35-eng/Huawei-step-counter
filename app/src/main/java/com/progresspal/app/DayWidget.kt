@@ -163,6 +163,7 @@ class DayWidget : AppWidgetProvider() {
             val planner = Planner.data.value
             val today = LocalDate.now()
             val level = productivityEvents(app, planner, stt).byDay()[today]
+            val planScore = com.progresspal.app.data.planScoreOn(planner, stt, today)
             val salat = app.salatStats()
             val beads = app.salatBeads()
             val dm = context.resources.displayMetrics
@@ -202,6 +203,7 @@ class DayWidget : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.widget_day).apply {
                     setTextViewText(R.id.day_date, today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")))
                     setTextViewText(R.id.day_level, "⚡ ${level?.total ?: 0}")
+                    setTextViewText(R.id.day_plan, "🎯 Plan " + (planScore.percent?.let { "$it%" } ?: "–"))
                     setTextViewText(
                         R.id.day_breakdown,
                         "🕌 ${level?.salat ?: 0} salat · ✓ ${level?.tasks ?: 0} tasks" + if ((level?.plans ?: 0) > 0) " · ◆ ${level!!.plans} plans" else "",
