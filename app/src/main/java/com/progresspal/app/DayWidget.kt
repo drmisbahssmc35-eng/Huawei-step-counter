@@ -150,6 +150,7 @@ class DayWidget : AppWidgetProvider() {
 
         /** Re-draws every placed Day widget with the latest data. Safe to call often. */
         fun refresh(context: Context) {
+            FocusWidget.refresh(context)
             runCatching {
                 val manager = AppWidgetManager.getInstance(context)
                 val ids = manager.getAppWidgetIds(ComponentName(context, DayWidget::class.java))
