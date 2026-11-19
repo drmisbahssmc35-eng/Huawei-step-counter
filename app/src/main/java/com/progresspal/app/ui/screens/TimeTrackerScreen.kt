@@ -571,7 +571,7 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
         is PlanItem -> AlertDialog(
             onDismissRequest = onDismiss,
             containerColor = Pal.c.card,
-            title = { Text("Delete plan?", color = Pal.c.foreground) },
+            title = { Text("${key.title}", color = Pal.c.foreground) },
             text = {
                 Text(
                     "\"${key.title}\" · ${hm(key.start)} – ${hm(key.end)}" +
@@ -592,7 +592,19 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
                     Text("Delete", color = Pal.c.destructive)
                 }
             },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+            dismissButton = {
+                Row {
+                    // Finished before the planned time → count the plan as 100% done (or undo that).
+                    val day = Instant.ofEpochMilli(key.start).atZone(ZoneId.systemDefault()).toLocalDate()
+                    val isDone = day.toString() in key.doneOn
+                    TextButton(onClick = {
+                        Planner.markDone(key.id, day, !isDone)
+                        toast(ctx, if (isDone) "Done removed" else "✓ ${key.title} done — counts as 100%")
+                        onDismiss()
+                    }) { Text(if (isDone) "Undo done" else "✓ Done", color = Pal.c.primary) }
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            },
         )
         is Block -> AlertDialog(
             onDismissRequest = onDismiss,
@@ -621,7 +633,7 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
             },
             dismissButton = {
                 Row {
-                    if (plansFor(key).isNotEmpty()) TextButton(onClick = { markBlockDone(ctx, key, cache); onDismiss() }) {
+                    TextButton(onClick = { markBlockDone(ctx, key, cache); onDismiss() }) {
                         Text("✓ Done", color = Pal.c.primary)
                     }
                     if (!key.live) TextButton(onClick = { SimpleTimeTracker.openApp(ctx); onDismiss() }) { Text("Open STT") }
