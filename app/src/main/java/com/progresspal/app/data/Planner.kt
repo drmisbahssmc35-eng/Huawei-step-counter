@@ -34,6 +34,8 @@ data class PlanItem(
     val skip: List<String> = emptyList(),
     /** Optional note written when planning. */
     val note: String = "",
+    /** Days ("yyyy-MM-dd") this plan was marked done early — then it counts as fully done. */
+    val doneOn: List<String> = emptyList(),
 )
 
 @Serializable
@@ -82,6 +84,14 @@ object Planner {
     fun delete(id: String) = update { d -> d.copy(plans = d.plans.filterNot { it.id == id }) }
 
     /** Removes one day of a repeating plan. */
+    /** Marks one day of a plan as done (finished before its time ends). */
+    fun markDone(id: String, date: java.time.LocalDate, done: Boolean = true) = update { d ->
+        d.copy(plans = d.plans.map {
+            if (it.id != id) it
+            else it.copy(doneOn = if (done) (it.doneOn + date.toString()).distinct() else it.doneOn - date.toString())
+        })
+    }
+
     fun skipDay(id: String, date: java.time.LocalDate) = update { d ->
         d.copy(plans = d.plans.map { if (it.id == id) it.copy(skip = it.skip + date.toString()) else it })
     }
@@ -93,6 +103,10 @@ object Planner {
 
 /** Milliseconds of the plan's window covered by tracked time on its activity. */
 fun planCovered(p: PlanItem, stt: SttCache, now: Long): Long {
+    // Marked done early → the whole planned time counts as done.
+    if (p.doneOn.isNotEmpty() &&
+        Instant.ofEpochMilli(p.start).atZone(ZoneId.systemDefault()).toLocalDate().toString() in p.doneOn
+    ) return (p.end - p.start).coerceAtLeast(0)
     val matches: (Long?, String?) -> Boolean = { id, name ->
         when {
             p.activityId != null -> id == p.activityId

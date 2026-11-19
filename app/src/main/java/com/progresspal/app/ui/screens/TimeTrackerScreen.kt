@@ -523,20 +523,43 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
             title = { Text(b.name, color = Pal.c.foreground) },
             text = {
                 Text(
-                    "Only a running activity can be switched from here. Simple Time Tracker doesn't let other apps " +
+                    (if (plansFor(b).isNotEmpty()) "Finished before the planned time? Tap ✓ Done and the plan counts as 100% done.\n\n" else "") +
+                        "Only a running activity can be switched from here. Simple Time Tracker doesn't let other apps " +
                         "change a finished record, so open it there to change this one.",
                     color = Pal.c.foreground, fontSize = 14.sp,
                 )
             },
-            confirmButton = { TextButton(onClick = { SimpleTimeTracker.openApp(ctx3); finishedTap = null }) { Text("Open Simple Time Tracker") } },
+            confirmButton = {
+                if (plansFor(b).isNotEmpty()) TextButton(onClick = { markBlockDone(ctx3, b, cache); finishedTap = null }) {
+                    Text("✓ Done (plan complete)", color = Pal.c.primary)
+                } else TextButton(onClick = { SimpleTimeTracker.openApp(ctx3); finishedTap = null }) { Text("Open Simple Time Tracker") }
+            },
             dismissButton = {
                 Row {
+                    if (plansFor(b).isNotEmpty()) TextButton(onClick = { SimpleTimeTracker.openApp(ctx3); finishedTap = null }) { Text("Open STT") }
                     TextButton(onClick = { finishedTap = null; onOpenTimers() }) { Text("Activity List") }
                     TextButton(onClick = { finishedTap = null }) { Text("Close") }
                 }
             },
         )
     }
+}
+
+/** Plans that an actual block belongs to: same activity, overlapping it (else the next one still open that day). */
+private fun plansFor(b: Block): List<PlanItem> {
+    if (b.activityId == null) return emptyList()
+    val date = Instant.ofEpochMilli(b.start).atZone(ZoneId.systemDefault()).toLocalDate()
+    val same = occurrencesOn(Planner.data.value, date).filter { it.activityId == b.activityId || it.title.equals(b.name, true) }
+    val overlap = same.filter { it.end > b.start && it.start < b.end }
+    return overlap.ifEmpty { same.filter { it.end > System.currentTimeMillis() }.take(1) }
+}
+
+/** Marks the block's plans done (full planned time counts); stops the timer if it is still running. */
+private fun markBlockDone(ctx: android.content.Context, b: Block, cache: SttCache) {
+    val plans = plansFor(b)
+    plans.forEach { Planner.markDone(it.id, Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalDate()) }
+    if (b.live) cache.activities.firstOrNull { it.id == b.activityId }?.let { SimpleTimeTracker.toggle(it) }
+    toast(ctx, if (plans.isEmpty()) "No plan for ${b.name} to complete" else "✓ ${b.name} done — counts as 100% of the plan")
 }
 
 /** Long-press menu: delete a plan, or hide / stop an actual block. */
@@ -598,7 +621,10 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
             },
             dismissButton = {
                 Row {
-                    if (!key.live) TextButton(onClick = { SimpleTimeTracker.openApp(ctx); onDismiss() }) { Text("Open Simple Time Tracker") }
+                    if (plansFor(key).isNotEmpty()) TextButton(onClick = { markBlockDone(ctx, key, cache); onDismiss() }) {
+                        Text("✓ Done", color = Pal.c.primary)
+                    }
+                    if (!key.live) TextButton(onClick = { SimpleTimeTracker.openApp(ctx); onDismiss() }) { Text("Open STT") }
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                 }
             },
