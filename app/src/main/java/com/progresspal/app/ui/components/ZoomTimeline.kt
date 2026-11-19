@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -101,9 +103,18 @@ fun ZoomTimeline(
     onItemDoubleTap: ((TLItem) -> Unit)? = null,
     /** Long press on a block. */
     onItemLongPress: ((TLItem) -> Unit)? = null,
+    /** When set, the zoom and scroll position are remembered under this name (across app restarts). */
+    stateKey: String? = null,
 ) {
-    var zoom by remember { mutableFloatStateOf(1f) }
+    val prefs = androidx.compose.ui.platform.LocalContext.current
+        .getSharedPreferences("timeline_zoom", android.content.Context.MODE_PRIVATE)
+    var zoom by remember { mutableFloatStateOf(stateKey?.let { prefs.getFloat("z_$it", 1f) } ?: 1f) }
     var offset by remember { mutableFloatStateOf(0f) }
+    // Saved position = how far down the day the top of the view is (0..1), so it fits any screen size.
+    var restored by remember { mutableStateOf(stateKey == null) }
+    fun persist(topFrac: Float) {
+        stateKey?.let { prefs.edit().putFloat("z_$it", zoom).putFloat("t_$it", topFrac).apply() }
+    }
     val density = LocalDensity.current
     val nCols = columns.size.coerceAtLeast(1)
     val placed = remember(items) {
@@ -124,6 +135,12 @@ fun ZoomTimeline(
 
         fun dayPx(z: Float) = (hPx - 2 * padPx) * z
         fun maxOffset(z: Float) = (dayPx(z) + 2 * padPx - hPx).coerceAtLeast(0f)
+        if (!restored && hPx > 1f) {
+            LaunchedEffect(hPx) {
+                offset = (prefs.getFloat("t_$stateKey", 0f) * dayPx(zoom)).coerceIn(0f, maxOffset(zoom))
+                restored = true
+            }
+        }
         val off = offset.coerceIn(0f, maxOffset(zoom))
 
         val pxPerMs = dayPx(zoom) / DAY_MS
@@ -163,6 +180,7 @@ fun ZoomTimeline(
                             ev.changes.forEach { it.consume() }
                         }
                     } while (ev.changes.any { it.pressed })
+                    if (dragging) persist(offset / dayPx(zoom))
                     if (!multi && abs(totalX) > swipePx && abs(totalX) > abs(totalY) * 1.5f) {
                         swipe(if (totalX > 0) -1 else 1)
                     }
@@ -310,7 +328,7 @@ fun ZoomTimeline(
                     "${if (zoom < 10) "%.1f".format(zoom) else zoom.roundToInt().toString()}×  ·  tap to reset",
                     Modifier.align(Alignment.BottomStart).padding(6.dp)
                         .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f))
-                        .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); zoom = 1f; offset = 0f } }
+                        .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); zoom = 1f; offset = 0f; persist(0f) } }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center,
                 )

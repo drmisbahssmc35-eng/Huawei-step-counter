@@ -471,6 +471,7 @@ private fun TimelineTab(cache: SttCache, app: AppData, dayEpoch: Long, onOpenTim
                 onSwipeDay = { d -> onDay(dayEpoch + d) },
                 columns = if (planOn) listOf("Actual", "Planner") else emptyList(),
                 onEmptyTap = if (planOn) ({ col, _ -> if (col == 1) newPlan() }) else null,
+                stateKey = "time_tracker", // keep zoom and position between visits
             )
         }
         // Day strip
