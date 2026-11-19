@@ -104,7 +104,7 @@ class FocusWidget : AppWidgetProvider() {
                     "Today · ${e.count { it.completed }}/${e.size} done · tap a task to tick it"
                 }
                 "projects" -> "${activeProjects(app.projects).size} ongoing projects"
-                else -> "Scroll up/down for other 3-hour parts of today · 8 parts"
+                else -> "Scroll for other 3-hour parts · double-tap to open the timeline"
             }
 
             val svc = Intent(context, FocusWidgetService::class.java)
@@ -132,11 +132,18 @@ class FocusWidget : AppWidgetProvider() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ))
-                // Taps on list items (task rows) come back here.
-                setPendingIntentTemplate(R.id.focus_list, PendingIntent.getBroadcast(
+                // List taps go to WidgetTapActivity: a task row is ticked at once, other rows open the app on a double tap.
+                setPendingIntentTemplate(R.id.focus_list, PendingIntent.getActivity(
                     context, id * 10 + 6,
-                    Intent(context, FocusWidget::class.java).setAction(ACTION_ITEM).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id),
+                    Intent(context, WidgetTapActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                ))
+                setOnClickPendingIntent(R.id.focus_subtitle, PendingIntent.getActivity(
+                    context, id * 10 + 7,
+                    Intent(context, WidgetTapActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, "timetracker")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ))
                 if (scrollToNow && mode == "timeline") setScrollPosition(R.id.focus_list, LocalTime.now().hour / 3)
             }
@@ -173,21 +180,61 @@ class FocusWidgetService : RemoteViewsService() {
             }
         }
 
-        /** Today in eight 3-hour images (12–3am, 3–6am … 9pm–12am). */
+        /** Today in eight 3-hour parts (12–3am … 9pm–12am), each with a 3-hour timer and plan progress. */
         private fun segmentRows(): List<RemoteViews> {
             val p = FocusWidget.prefs(context)
             val density = context.resources.displayMetrics.density
             val w = p.getInt("w_$id", (300 * density).toInt())
-            val h = p.getInt("h_$id", (220 * density).toInt())
+            // Leave room for the two bars above each part.
+            val h = (p.getInt("h_$id", (220 * density).toInt()) - (64 * density).toInt()).coerceAtLeast((90 * density).toInt())
             val stt = SimpleTimeTracker.cache.value
             val planner = Planner.data.value
-            val dayStart = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val today = LocalDate.now()
+            val dayStart = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val now = System.currentTimeMillis()
+            val plans = com.progresspal.app.data.occurrencesOn(planner, today)
+            val part = 3 * 3_600_000L
+            fun label(hr: Int) = when { hr % 24 == 0 -> "12am"; hr < 12 -> "${hr}am"; hr == 12 -> "12pm"; else -> "${hr - 12}pm" }
             return (0 until 8).map { i ->
-                val from = dayStart + i * 3 * 3_600_000L
-                val bmp = TimelineRenderer.render(w, h, density, stt, planner, planner.enabled, now, from, from + 3 * 3_600_000L)
-                RemoteViews(context.packageName, R.layout.focus_item_segment).apply { setImageViewBitmap(R.id.focus_segment, bmp) }
+                val from = dayStart + i * part
+                val to = from + part
+                val bmp = TimelineRenderer.render(w, h, density, stt, planner, planner.enabled, now, from, to)
+
+                // 3-hour timer: how much of this part has passed.
+                val elapsed = (now - from).coerceIn(0, part)
+                val timePct = (elapsed * 100 / part).toInt()
+                val left = part - elapsed
+                val timeText = when {
+                    now >= to -> "done"
+                    now < from -> "starts in ${hm(from - now)}"
+                    else -> "${hm(elapsed)} / 3h · ${hm(left)} left"
+                }
+
+                // Plans in this part and how many are done.
+                val inPart = plans.filter { it.end > from && it.start < to }
+                val done = inPart.count { com.progresspal.app.data.planState(it, stt, now).first == com.progresspal.app.data.PlanState.DONE }
+                val planPct = if (inPart.isEmpty()) 0 else done * 100 / inPart.size
+
+                RemoteViews(context.packageName, R.layout.focus_item_segment).apply {
+                    setTextViewText(R.id.seg_time_label, "⏱ ${label(i * 3)} – ${label(i * 3 + 3)}" + if (now in from until to) "  · now" else "")
+                    setTextViewText(R.id.seg_time_value, timeText)
+                    setProgressBar(R.id.seg_time_bar, 100, timePct, false)
+                    setTextViewText(
+                        R.id.seg_plan_label,
+                        if (inPart.isEmpty()) "🎯 No plans in these 3 hours" else "🎯 Plans $done/${inPart.size} done",
+                    )
+                    setTextViewText(R.id.seg_plan_value, if (inPart.isEmpty()) "" else "$planPct%")
+                    setProgressBar(R.id.seg_plan_bar, 100, planPct, false)
+                    setImageViewBitmap(R.id.focus_segment, bmp)
+                    // Double tap (counted by WidgetTapActivity) opens the timeline.
+                    setOnClickFillInIntent(R.id.seg_root, Intent().putExtra(MainActivity.EXTRA_OPEN, "timetracker"))
+                }
             }
+        }
+
+        private fun hm(ms: Long): String {
+            val m = (ms / 60_000).coerceAtLeast(0)
+            return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m"
         }
 
         private fun taskRows(): List<RemoteViews> {
@@ -226,6 +273,7 @@ class FocusWidgetService : RemoteViewsService() {
                     setTextViewText(R.id.proj_pct, "$pct%")
                     setTextViewText(R.id.proj_sub, "$done/${p.tasks.size} tasks" + (p.target?.let { " · $it" } ?: ""))
                     setProgressBar(R.id.proj_bar, 100, pct, false)
+                    setOnClickFillInIntent(R.id.proj_root, Intent().putExtra(MainActivity.EXTRA_OPEN, "project/${p.id}"))
                 }
             }
     }

@@ -13,6 +13,19 @@ import android.widget.Toast
 class WidgetTapActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A task row on the Focus widget: tick / untick it right away, no app opened.
+        intent.getStringExtra(FocusWidget.EXTRA_TASK)?.let { taskId ->
+            FocusWidget.initData(this)
+            val today = com.progresspal.app.data.today()
+            com.progresspal.app.data.dailyTasksFor(com.progresspal.app.data.AppStore.data.value, today)
+                .firstOrNull { it.task.id == taskId }?.let { e ->
+                    if (e.isRecurring) com.progresspal.app.data.AppStore.toggleDateTask(taskId, today)
+                    else com.progresspal.app.data.AppStore.toggleTask(e.project.id, taskId)
+                }
+            finish()
+            @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+            return
+        }
         val prefs = getSharedPreferences("widget_tap", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val last = prefs.getLong("last", 0L)
@@ -25,7 +38,7 @@ class WidgetTapActivity : Activity() {
             )
         } else {
             prefs.edit().putLong("last", now).apply()
-            Toast.makeText(this, "Tap again to open the timeline", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Tap again to open", Toast.LENGTH_SHORT).show()
         }
         finish()
         @Suppress("DEPRECATION") overridePendingTransition(0, 0)
