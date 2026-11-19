@@ -357,9 +357,9 @@ private fun ColumnChart(bars: List<LBar>, colors: List<Color>, onTap: (LBar) -> 
     }
 }
 
-/** Planning Score: how much of the planned time was spent on the planned activity, in %. */
+/** Implement Score: how much of the planned time was spent on the planned activity, in %. */
 @Composable
-fun PlanningScoreSection() {
+fun ImplementScoreSection() {
     val planner by Planner.data.collectAsStateWithLifecycle()
     val stt by SimpleTimeTracker.cache.collectAsStateWithLifecycle()
     val today = LocalDate.now()
@@ -385,7 +385,7 @@ fun PlanningScoreSection() {
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("Planning Score", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Pal.c.foreground)
+                Text("Implement Score", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Pal.c.foreground)
                 Text("Share of planned time spent on the planned activity, at the planned time", fontSize = 11.sp, color = Pal.c.mutedForeground)
             }
         }
@@ -420,6 +420,76 @@ fun PlanningScoreSection() {
         ColumnChart(
             last14.map { r -> LBar(r.day.format(DateTimeFormatter.ofPattern("EEE")).take(2), r.day.dayOfMonth.toString(), r.s.percent ?: 0, r.day == today, r.day) },
             listOf(Color(0xFFFFC400), Color(0xFFFF4FA3)),
+        ) {}
+    }
+}
+
+/** Plan Score: how many of the day's 24 hours are planned, in hours and %. */
+@Composable
+fun PlanScoreSection() {
+    val planner by Planner.data.collectAsStateWithLifecycle()
+    val today = LocalDate.now()
+    val dayMs = 24 * 3_600_000L
+    val daily = remember(planner) {
+        val first = com.progresspal.app.data.firstPlanDay(planner)?.let { minOf(it, today) } ?: today
+        generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(today.plusDays(7)) }
+            .associateWith { com.progresspal.app.data.plannedMsOn(planner, it) }
+    }
+    fun on(d: LocalDate) = daily[d] ?: com.progresspal.app.data.plannedMsOn(planner, d)
+    fun avg(days: List<LocalDate>) = if (days.isEmpty()) 0L else days.sumOf { on(it) } / days.size
+    val todayMs = on(today)
+    val tomorrowMs = on(today.plusDays(1))
+    val week = avg((0..6).map { today.minusDays(it.toLong()) })
+    val month = avg((0..29).map { today.minusDays(it.toLong()) })
+    val planned = daily.filterKeys { !it.isAfter(today) }.values.filter { it > 0 }
+    val life = if (planned.isEmpty()) 0L else planned.sum() / planned.size
+    fun pct(ms: Long) = ((ms * 100) / dayMs).toInt()
+    fun both(ms: Long) = "${com.progresspal.app.data.hoursText(ms)} · ${pct(ms)}%"
+    val accent = Color(0xFF00E5FF)
+
+    AppCard(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF2979FF)))).padding(horizontal = 9.dp, vertical = 5.dp)) {
+                Text("📋", fontSize = 16.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Plan Score", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Pal.c.foreground)
+                Text("How much of the day's 24 hours you planned", fontSize = 11.sp, color = Pal.c.mutedForeground)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("${pct(todayMs)}%", color = accent, fontSize = 48.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.padding(bottom = 8.dp)) {
+                Text("today", fontSize = 13.sp, color = Pal.c.mutedForeground)
+                Text("${com.progresspal.app.data.hoursText(todayMs)} of 24h planned", fontSize = 13.sp, color = Pal.c.foreground, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.c.muted)) {
+            Box(
+                Modifier.fillMaxWidth((todayMs.toFloat() / dayMs).coerceIn(0f, 1f)).height(10.dp)
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFF2979FF))))
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile("Tomorrow", both(tomorrowMs), Color(0xFF7C4DFF), Modifier.weight(1f))
+            Tile("7-day avg", both(week), Color(0xFF00BFA5), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tile("30-day avg", both(month), Color(0xFFFF6D00), Modifier.weight(1f))
+            Tile("Lifetime avg", both(life), Color(0xFFF50057), Modifier.weight(1f), sub = "on days with a plan")
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Hours planned · last 14 days", fontSize = 12.sp, color = Pal.c.mutedForeground, fontWeight = FontWeight.SemiBold)
+        ColumnChart(
+            (13 downTo 0).map { today.minusDays(it.toLong()) }.map { d ->
+                LBar(d.format(DateTimeFormatter.ofPattern("EEE")).take(2), d.dayOfMonth.toString(), ((on(d) + 1_800_000) / 3_600_000).toInt(), d == today, d)
+            },
+            listOf(Color(0xFF00E5FF), Color(0xFF2979FF)),
         ) {}
     }
 }

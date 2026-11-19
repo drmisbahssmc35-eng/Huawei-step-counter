@@ -190,3 +190,27 @@ fun planScoreBetween(planner: PlannerData, stt: SttCache, from: java.time.LocalD
 /** First day anything was planned (for lifetime totals). */
 fun firstPlanDay(planner: PlannerData): java.time.LocalDate? =
     planner.plans.minOfOrNull { Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalDate() }
+
+/** Plan Score for a day: hours covered by plans (overlaps counted once), out of 24. */
+fun plannedMsOn(planner: PlannerData, date: java.time.LocalDate): Long {
+    val zone = ZoneId.systemDefault()
+    val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+    val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    var total = 0L; var curS = Long.MIN_VALUE; var curE = Long.MIN_VALUE
+    occurrencesOn(planner, date)
+        .map { maxOf(it.start, from) to minOf(it.end, to) }
+        .filter { it.second > it.first }
+        .sortedBy { it.first }
+        .forEach { (s, e) ->
+            if (s > curE) { if (curE > curS) total += curE - curS; curS = s; curE = e } else curE = maxOf(curE, e)
+        }
+    if (curE > curS) total += curE - curS
+    return total
+}
+
+/** "6.5h" style, one decimal. */
+fun hoursText(ms: Long): String {
+    val h = ms / 3_600_000.0
+    val r = Math.round(h * 10) / 10.0
+    return (if (r % 1.0 == 0.0) r.toInt().toString() else r.toString()) + "h"
+}
