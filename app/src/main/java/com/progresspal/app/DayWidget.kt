@@ -172,11 +172,12 @@ class DayWidget : AppWidgetProvider() {
             val dm = context.resources.displayMetrics
             val density = dm.density
 
+            // Double tap → timeline (taps are counted by WidgetTapActivity).
             val open = PendingIntent.getActivity(
                 context, 3,
-                Intent(context, MainActivity::class.java)
+                Intent(context, WidgetTapActivity::class.java)
                     .putExtra(MainActivity.EXTRA_OPEN, "timetracker")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 

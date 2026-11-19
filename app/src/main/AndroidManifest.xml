@@ -89,5 +89,13 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/score_widget_info" />
         </receiver>
+        <!-- Counts taps on the Day widget; a double tap opens the timeline. -->
+        <activity
+            android:name=".WidgetTapActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     </application>
 </manifest>
