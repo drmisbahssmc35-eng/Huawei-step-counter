@@ -229,44 +229,80 @@
         android:max="100"
         android:progressDrawable="@drawable/widget_bar_task" />
 
-    <LinearLayout
+    <FrameLayout
         android:id="@+id/score_timer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:background="@drawable/widget_timer_bg"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="10dp">
+        android:layout_marginTop="10dp">
+
+        <!-- Rounded background tinted with the running activity's colour. -->
+        <ImageView
+            android:id="@+id/score_timer_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="fitXY"
+            android:src="@drawable/widget_round_white" />
+
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-            <TextView
-                android:id="@+id/score_timer_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="NOW TRACKING"
-                android:textColor="#8FE9FF"
-                android:textSize="10sp"
-                android:textStyle="bold" />
-            <TextView
-                android:id="@+id/score_timer_name"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:id="@+id/score_timer_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="NOW TRACKING"
+                        android:textColor="#E6FFFFFF"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:id="@+id/score_timer_name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+                <Chronometer
+                    android:id="@+id/score_chrono"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Progress through the current 15-minute block. -->
+            <ProgressBar
+                android:id="@+id/score_timer_bar"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="6dp"
+                android:max="900"
+                android:progressDrawable="@drawable/widget_bar_white" />
+            <TextView
+                android:id="@+id/score_timer_sub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#E6FFFFFF"
+                android:textSize="10sp" />
         </LinearLayout>
-        <Chronometer
-            android:id="@+id/score_chrono"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
-            android:textSize="26sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+    </FrameLayout>
 </LinearLayout>

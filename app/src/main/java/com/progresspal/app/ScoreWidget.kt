@@ -49,10 +49,16 @@ class ScoreWidget : AppWidgetProvider() {
 
     override fun onDisabled(context: Context) {
         (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(tickIntent(context))
+        scheduleMinuteTicks(context, false)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        if (intent.action == ACTION_MINUTE) {
+            initData(context)
+            refresh(context)
+            return
+        }
         if (intent.action == ACTION_TICK) {
             initData(context)
             refresh(context)
@@ -81,6 +87,20 @@ class ScoreWidget : AppWidgetProvider() {
                 AlarmManager.INTERVAL_FIFTEEN_MINUTES,
                 tickIntent(context),
             )
+        }
+
+        private const val ACTION_MINUTE = "com.progresspal.app.SCORE_WIDGET_MINUTE"
+
+        private fun minuteIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+            context, 5, Intent(context, ScoreWidget::class.java).setAction(ACTION_MINUTE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        /** While a timer runs, redraw every minute (no wake-ups) so its 15-minute bar fills. */
+        private fun scheduleMinuteTicks(context: Context, on: Boolean) {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (on) am.setRepeating(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 60_000, 60_000, minuteIntent(context))
+            else am.cancel(minuteIntent(context))
         }
 
         fun refresh(context: Context) {
@@ -116,7 +136,8 @@ class ScoreWidget : AppWidgetProvider() {
 
             val salat = app.salatStats()
             val beads = app.salatBeads()
-            val missed = app.missedSinceLastSalat()
+            val missedInfo = app.missedSinceLastSalat(planner, stt)
+            val missed = missedInfo.count
 
             val clock = dayClock(today, now)
             val tasks = dailyTasksFor(app, today)
@@ -137,6 +158,7 @@ class ScoreWidget : AppWidgetProvider() {
                 PendingIntent.getActivity(context, 41, it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             } ?: openTimeline
 
+            scheduleMinuteTicks(context, running != null)
             ids.forEach { id ->
                 val wDp = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0).takeIf { it > 0 } ?: 300
                 val beadW = ((wDp - 24) * density).toInt().coerceAtLeast((160 * density).toInt())
@@ -160,7 +182,11 @@ class ScoreWidget : AppWidgetProvider() {
                         if (!salat.enabled) "📿 Salat streak — start it in the app"
                         else "📿 ${salat.current} bead${if (salat.current == 1) "" else "s"} · best ${salat.longest?.length ?: 0}",
                     )
-                    setTextViewText(R.id.score_missed, if (missed == 0) "✓ none missed" else "⚠ $missed missed")
+                    setTextViewText(
+                        R.id.score_missed,
+                        (if (missed == 0) "✓ none missed" else "⚠ $missed missed") +
+                            (missedInfo.lastPrayed?.let { (d, slot) -> " · since $slot ${d.dayOfMonth} ${d.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }}" } ?: ""),
+                    )
                     setInt(R.id.score_missed, "setBackgroundResource", if (missed == 0) R.drawable.widget_pill_plain else R.drawable.widget_pill_record)
                     setTextColor(R.id.score_missed, if (missed == 0) 0xFFD9DEE8.toInt() else 0xFF3D2200.toInt())
                     setImageViewBitmap(R.id.score_beads, beadBmp)
@@ -173,12 +199,22 @@ class ScoreWidget : AppWidgetProvider() {
                     setProgressBar(R.id.score_task_bar, 100, taskPct, false)
 
                     if (running != null && runAct != null) {
+                        val elapsedS = ((now - running.startedAt) / 1000).coerceAtLeast(0)
+                        val inBlock = (elapsedS % 900).toInt() // 15-minute blocks
+                        setInt(R.id.score_timer_bg, "setColorFilter", runAct.color.toInt() or 0xFF000000.toInt())
+                        setProgressBar(R.id.score_timer_bar, 900, inBlock, false)
+                        setTextViewText(R.id.score_timer_sub, "${inBlock / 60}/15 min · block ${elapsedS / 900 + 1}")
+                        setViewVisibility(R.id.score_timer_bar, android.view.View.VISIBLE)
+                        setViewVisibility(R.id.score_timer_sub, android.view.View.VISIBLE)
                         setTextViewText(R.id.score_timer_label, "NOW TRACKING")
                         setTextViewText(R.id.score_timer_name, runAct.name)
                         // Ticks by itself every second, no widget updates needed.
                         setChronometer(R.id.score_chrono, SystemClock.elapsedRealtime() - (now - running.startedAt), null, true)
                         setViewVisibility(R.id.score_chrono, android.view.View.VISIBLE)
                     } else {
+                        setInt(R.id.score_timer_bg, "setColorFilter", 0xFF2A2F3D.toInt())
+                        setViewVisibility(R.id.score_timer_bar, android.view.View.GONE)
+                        setViewVisibility(R.id.score_timer_sub, android.view.View.GONE)
                         setTextViewText(R.id.score_timer_label, "NO TIMER RUNNING")
                         setTextViewText(R.id.score_timer_name, "Tap to open Simple Time Tracker")
                         setChronometer(R.id.score_chrono, SystemClock.elapsedRealtime(), null, false)

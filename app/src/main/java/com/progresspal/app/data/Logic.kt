@@ -357,25 +357,49 @@ fun ChainBreak.describe(today: LocalDate = today()): String {
     }
 }
 
+/** Missed prayers since the last one prayed, and which prayer that was. */
+data class MissedSalat(val count: Int, val lastPrayed: Pair<LocalDate, String>?, val missedNames: List<Pair<LocalDate, String>>)
+
 /**
- * Prayers missed since the last one prayed: walks back from now through each day's prayers in
- * order, counting those whose time has passed and are not ticked, until reaching a prayed one.
- * E.g. last prayed Maghrib on 17 Nov, now 18 Nov after Dhuhr time → Isha (17), Fajr, Dhuhr (18) = 3.
+ * Prayers missed since the last one prayed. Each day is taken prayer by prayer (Fajr → Isha),
+ * one slot each: a slot counts as prayed when any of its tasks is ticked or its activity was
+ * tracked in Simple Time Tracker (duplicate lists don't count twice). A slot only counts as missed
+ * once its time has passed — the time planned for it in the Planner, else the task's own time,
+ * else the usual prayer time. Walking back from now, missed slots are counted until a prayed one.
  */
-fun AppData.missedSinceLastSalat(now: java.time.LocalDateTime = java.time.LocalDateTime.now()): Int {
-    var missed = 0
+fun AppData.missedSinceLastSalat(
+    planner: PlannerData? = null,
+    stt: SttCache? = null,
+    now: java.time.LocalDateTime = java.time.LocalDateTime.now(),
+): MissedSalat {
+    val zone = java.time.ZoneId.systemDefault()
+    val defaults = SALAT_PRAYERS.toMap()
+    val order = listOf("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha")
+    val missed = mutableListOf<Pair<LocalDate, String>>()
     var d = now.toLocalDate()
     repeat(400) {
         val entries = salatOn(d)
-        for (e in entries.asReversed()) {
-            val due = e.task.dueTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
-                ?: SALAT_PRAYERS.firstOrNull { salatSlot(it.first) == salatSlot(e.task.title) }?.second?.let { java.time.LocalTime.parse(it) }
-                ?: java.time.LocalTime.NOON
+        if (entries.isEmpty() && d.isBefore(now.toLocalDate().minusDays(2)) && missed.isEmpty()) return MissedSalat(0, null, emptyList())
+        val bySlot = entries.groupBy { salatSlot(it.task.title)!! }
+        // Activities tracked that day whose names are prayers.
+        val trackedSlots = stt?.days?.get(d.toString()).orEmpty().mapNotNull { r ->
+            (r.activityName ?: stt?.activities?.firstOrNull { it.id == r.activityId }?.name)?.let { salatSlot(it) }
+        }.toSet()
+        val plans = planner?.let { occurrencesOn(it, d) }.orEmpty()
+        for (slot in order.asReversed()) {
+            val list = bySlot[slot] ?: continue
+            val planned = plans.filter { salatSlot(it.title) == slot }.minOfOrNull { it.start }
+                ?.let { java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalTime() }
+            val own = list.mapNotNull { e -> e.task.dueTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() } }
+                .filterNot { it == java.time.LocalTime.NOON && slot != "Dhuhr" } // 12:00 is just the form's default
+                .minOrNull()
+            val due = planned ?: own ?: java.time.LocalTime.parse(defaults[slot] ?: "12:00")
+            val prayed = list.any { it.completed } || slot in trackedSlots
+            if (prayed) return MissedSalat(missed.size, d to slot, missed)
             if (d.atTime(due).isAfter(now)) continue // not due yet
-            if (e.completed) return missed
-            missed++
+            missed += d to slot
         }
         d = d.minusDays(1)
     }
-    return missed
+    return MissedSalat(missed.size, null, missed)
 }
