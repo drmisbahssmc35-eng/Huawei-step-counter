@@ -356,3 +356,26 @@ fun ChainBreak.describe(today: LocalDate = today()): String {
         "💔 Last break: $missed salat missed · ${first.second} ${first.first.format("MMM d")} → ${last.second} ${last.first.format("MMM d")} (${ago(last.first)})$lost"
     }
 }
+
+/**
+ * Prayers missed since the last one prayed: walks back from now through each day's prayers in
+ * order, counting those whose time has passed and are not ticked, until reaching a prayed one.
+ * E.g. last prayed Maghrib on 17 Nov, now 18 Nov after Dhuhr time → Isha (17), Fajr, Dhuhr (18) = 3.
+ */
+fun AppData.missedSinceLastSalat(now: java.time.LocalDateTime = java.time.LocalDateTime.now()): Int {
+    var missed = 0
+    var d = now.toLocalDate()
+    repeat(400) {
+        val entries = salatOn(d)
+        for (e in entries.asReversed()) {
+            val due = e.task.dueTime?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
+                ?: SALAT_PRAYERS.firstOrNull { salatSlot(it.first) == salatSlot(e.task.title) }?.second?.let { java.time.LocalTime.parse(it) }
+                ?: java.time.LocalTime.NOON
+            if (d.atTime(due).isAfter(now)) continue // not due yet
+            if (e.completed) return missed
+            missed++
+        }
+        d = d.minusDays(1)
+    }
+    return missed
+}

@@ -2,5 +2,6 @@
     <string name="app_name">Progress Pal</string>
     <string name="widget_day_description">Today\'s full timeline (actual and planner), productivity level and salat beads</string>
     <string name="widget_focus_description">3-hour timeline you can scroll, today\'s tasks and project progress</string>
+    <string name="widget_score_description">Productivity, plan and implement scores, salat beads with missed count, day and task progress and the running timer</string>
     <string name="widget_description">Salat streak as a string of beads, plus today\'s tasks and day progress</string>
 </resources>
