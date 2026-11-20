@@ -68,6 +68,10 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.DailyOrder.init(applicationContext)
         handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
+        // Needed for the Azan's Stop notification (Android 13+).
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent {
             ProgressPalTheme {
                 App()
@@ -91,6 +95,7 @@ class MainActivity : ComponentActivity() {
         Cloud.pull()
         ProgressWidget.refresh(this)
         com.progresspal.app.data.SimpleTimeTracker.syncSoon()
+        AzanScheduler.schedule(this)
     }
 }
 

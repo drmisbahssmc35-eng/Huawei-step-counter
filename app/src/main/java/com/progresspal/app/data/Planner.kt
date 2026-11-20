@@ -70,7 +70,10 @@ object Planner {
         val next = f(_data.value)
         _data.value = next
         if (::file.isInitialized) runCatching { file.writeText(json.encodeToString(next)) }
-        appContext?.let { com.progresspal.app.DayWidget.refresh(it) }
+        appContext?.let {
+            com.progresspal.app.DayWidget.refresh(it)
+            com.progresspal.app.AzanScheduler.schedule(it) // Fajr plan time may have changed
+        }
     }
 
     fun setEnabled(on: Boolean) = update { it.copy(enabled = on) }

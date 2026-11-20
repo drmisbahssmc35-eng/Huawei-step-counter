@@ -305,6 +305,26 @@ private fun TimersTab(cache: SttCache) {
         }
         item {
             val ctx = LocalContext.current
+            var azanOn by remember { mutableStateOf(com.progresspal.app.AzanScheduler.enabled(ctx)) }
+            val next = remember(azanOn, cache) { com.progresspal.app.AzanScheduler.nextFajr() }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("🕌 Azan at Fajr", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        if (azanOn) "Next: " + DateTimeFormatter.ofPattern("EEE d MMM, h:mm a").format(next) +
+                            " · stops when you start Fajr" else "Off",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                }
+                Switch(checked = azanOn, onCheckedChange = { azanOn = it; com.progresspal.app.AzanScheduler.setEnabled(ctx, it) })
+            }
+        }
+        item {
+            val ctx = LocalContext.current
             val pick = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
             ) { uri -> if (uri != null) SimpleTimeTracker.setBackupFile(ctx, uri) }
