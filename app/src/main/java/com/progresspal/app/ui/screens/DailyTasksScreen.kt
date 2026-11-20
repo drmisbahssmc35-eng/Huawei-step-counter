@@ -223,6 +223,7 @@ fun DailyTasksScreen(data: AppData, initialDate: LocalDate, onBack: () -> Unit, 
 
             ordered.forEachIndexed { i, e ->
                 val toggle: () -> Unit = {
+                    if (!e.completed) com.progresspal.app.ui.components.Sounds.done()
                     if (e.isRecurring) AppStore.toggleDateTask(e.task.id, selected) else AppStore.toggleTask(e.project.id, e.task.id)
                     syncChallenge(e.task.id, !e.completed)
                 }

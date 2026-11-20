@@ -558,6 +558,7 @@ private fun plansFor(b: Block): List<PlanItem> {
 private fun markBlockDone(ctx: android.content.Context, b: Block, cache: SttCache) {
     val plans = plansFor(b)
     plans.forEach { Planner.markDone(it.id, Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalDate()) }
+    if (plans.isNotEmpty()) com.progresspal.app.ui.components.Sounds.done(ctx)
     if (b.live) cache.activities.firstOrNull { it.id == b.activityId }?.let { SimpleTimeTracker.toggle(it) }
     toast(ctx, if (plans.isEmpty()) "No plan for ${b.name} to complete" else "✓ ${b.name} done — counts as 100% of the plan")
 }
@@ -599,6 +600,7 @@ private fun DeleteDialog(key: Any, is24: Boolean, cache: SttCache, onDismiss: ()
                     val isDone = day.toString() in key.doneOn
                     TextButton(onClick = {
                         Planner.markDone(key.id, day, !isDone)
+                        if (!isDone) com.progresspal.app.ui.components.Sounds.done(ctx)
                         toast(ctx, if (isDone) "Done removed" else "✓ ${key.title} done — counts as 100%")
                         onDismiss()
                     }) { Text(if (isDone) "Undo done" else "✓ Done", color = Pal.c.primary) }

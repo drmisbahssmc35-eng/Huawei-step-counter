@@ -91,7 +91,22 @@ fun toast(context: Context, msg: String) = Toast.makeText(context, msg, Toast.LE
 object Sounds {
     private val gen: ToneGenerator? by lazy { runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 70) }.getOrNull() }
     private fun play(tone: Int, ms: Int) { runCatching { gen?.startTone(tone, ms) } }
-    fun check() = play(ToneGenerator.TONE_PROP_ACK, 120)
+    private var appContext: Context? = null
+
+    fun init(context: Context) { appContext = context.applicationContext }
+
+    /** The task-done chime (res/raw/task_done.mp3) — played whenever a task is completed. */
+    fun done(context: Context? = null) {
+        val ctx = context?.applicationContext ?: appContext ?: return
+        runCatching {
+            android.media.MediaPlayer.create(ctx, com.progresspal.app.R.raw.task_done)?.apply {
+                setOnCompletionListener { it.release() }
+                start()
+            }
+        }
+    }
+
+    fun check() = done()
     fun uncheck() = play(ToneGenerator.TONE_PROP_NACK, 100)
     fun start() = play(ToneGenerator.TONE_CDMA_ALERT_NETWORK_LITE, 300)
     fun won() = play(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 600)

@@ -19,6 +19,7 @@ class WidgetTapActivity : Activity() {
             val today = com.progresspal.app.data.today()
             com.progresspal.app.data.dailyTasksFor(com.progresspal.app.data.AppStore.data.value, today)
                 .firstOrNull { it.task.id == taskId }?.let { e ->
+                    if (!e.completed) com.progresspal.app.ui.components.Sounds.done(this)
                     if (e.isRecurring) com.progresspal.app.data.AppStore.toggleDateTask(taskId, today)
                     else com.progresspal.app.data.AppStore.toggleTask(e.project.id, taskId)
                 }
