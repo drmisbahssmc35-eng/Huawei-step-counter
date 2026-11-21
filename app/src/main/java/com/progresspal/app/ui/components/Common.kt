@@ -95,20 +95,25 @@ object Sounds {
 
     fun init(context: Context) { appContext = context.applicationContext }
 
-    /** The task-done chime (res/raw/task_done.mp3) — played whenever a task is completed. */
-    fun done(context: Context? = null) {
+    private fun playRaw(context: Context?, res: Int) {
         val ctx = context?.applicationContext ?: appContext ?: return
         runCatching {
-            android.media.MediaPlayer.create(ctx, com.progresspal.app.R.raw.task_done)?.apply {
+            android.media.MediaPlayer.create(ctx, res)?.apply {
                 setOnCompletionListener { it.release() }
                 start()
             }
         }
     }
 
+    /** The task-done chime (res/raw/task_done.mp3) — played whenever a task is completed. */
+    fun done(context: Context? = null) = playRaw(context, com.progresspal.app.R.raw.task_done)
+
+    /** The task-started sound (res/raw/task_started.mp3) — played whenever a task / timer starts. */
+    fun started(context: Context? = null) = playRaw(context, com.progresspal.app.R.raw.task_started)
+
     fun check() = done()
     fun uncheck() = play(ToneGenerator.TONE_PROP_NACK, 100)
-    fun start() = play(ToneGenerator.TONE_CDMA_ALERT_NETWORK_LITE, 300)
+    fun start() = started()
     fun won() = play(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 600)
     fun lost() = play(ToneGenerator.TONE_SUP_ERROR, 500)
 }

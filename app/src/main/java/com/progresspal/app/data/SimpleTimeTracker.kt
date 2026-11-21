@@ -230,6 +230,7 @@ object SimpleTimeTracker {
     /** Start if stopped, stop if running — inside Simple Time Tracker. */
     fun toggle(a: SttActivity) {
         val running = isRunning(a.id)
+        if (!running) com.progresspal.app.ui.components.Sounds.started(appContext)
         appContext.sendBroadcast(command(if (running) STOP else START).putExtra("extra_activity_name", a.name))
         // Show the change at once, then read back the real state.
         val c = _cache.value
@@ -428,6 +429,7 @@ object SimpleTimeTracker {
      */
     fun start(a: SttActivity, comment: String = "") {
         if (isRunning(a.id)) return
+        com.progresspal.app.ui.components.Sounds.started(appContext)
         val c = _cache.value
         val switching = c.switchMode && c.running.isNotEmpty()
         if (switching) appContext.sendBroadcast(command(STOP_ALL))
@@ -455,6 +457,7 @@ object SimpleTimeTracker {
         if (fromId == to.id) return true
         if (c.running.any { it.id == to.id }) return false
         val from = c.activities.firstOrNull { it.id == fromId } ?: return false
+        com.progresspal.app.ui.components.Sounds.started(appContext)
         appContext.sendBroadcast(
             command(STOP).putExtra("extra_activity_name", from.name).putExtra("extra_record_time_ended", r.startedAt.toString())
         )
