@@ -84,10 +84,16 @@ class ProgressWidget : AppWidgetProvider() {
             val isRecord = streak > 0 && streak >= best
             val density = context.resources.displayMetrics.density
 
-            val title = when {
+            val title: CharSequence = when {
                 !salat.enabled -> "Start your bead string"
                 streak == 0 -> "Start a new string 🌱"
-                else -> "$streak bead${if (streak == 1) "" else "s"} strong 🔥"
+                else -> android.text.SpannableStringBuilder().apply {
+                    // Big bold count, smaller words after it.
+                    append("$streak")
+                    setSpan(android.text.style.RelativeSizeSpan(2.2f), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    append(" bead${if (streak == 1) "" else "s"} strong 🔥")
+                }
             }
             val nextPending = beads.labels.takeLast(beads.pending).firstOrNull()
             val message = when {

@@ -38,6 +38,9 @@
                 android:layout_height="wrap_content"
                 android:maxLines="1"
                 android:text="0 beads strong 🔥"
+                android:includeFontPadding="false"
+                android:shadowColor="#AAFFB300"
+                android:shadowRadius="14"
                 android:textColor="#FFC94A"
                 android:textSize="22sp"
                 android:textStyle="bold" />
