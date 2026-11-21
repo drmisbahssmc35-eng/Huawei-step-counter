@@ -180,7 +180,7 @@ class ScoreWidget : AppWidgetProvider() {
                     setTextViewText(
                         R.id.score_streak,
                         if (!salat.enabled) "📿 Salat streak — start it in the app"
-                        else "📿 ${salat.current} bead${if (salat.current == 1) "" else "s"} · best ${salat.longest?.length ?: 0}",
+                        else com.progresspal.app.ui.beadStreakText(salat.current, salat.longest?.length ?: 0, 2.8f),
                     )
                     setTextViewText(
                         R.id.score_missed,

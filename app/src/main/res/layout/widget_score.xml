@@ -141,6 +141,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:includeFontPadding="false"
+            android:shadowColor="#AAFFB300"
+            android:shadowRadius="14"
             android:textColor="#FFC94A"
             android:textSize="16sp"
             android:textStyle="bold" />

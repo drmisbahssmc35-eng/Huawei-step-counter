@@ -158,3 +158,19 @@ object BeadRenderer {
         return Color.rgb(((r + m) * 255).toInt(), ((g + m) * 255).toInt(), ((b + m) * 255).toInt())
     }
 }
+
+/** "📿 9 beads · best 25" with the count big, bold and gold (for widget text). */
+fun beadStreakText(count: Int, best: Int, numberScale: Float = 2.6f): CharSequence {
+    val num = count.toString()
+    val sb = android.text.SpannableStringBuilder("📿 ")
+    val s = sb.length
+    sb.append(num)
+    sb.setSpan(android.text.style.RelativeSizeSpan(numberScale), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    sb.setSpan(android.text.style.ForegroundColorSpan(0xFFFFC94A.toInt()), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    val rest = " bead${if (count == 1) "" else "s"}  ·  best $best"
+    val r = sb.length
+    sb.append(rest)
+    sb.setSpan(android.text.style.ForegroundColorSpan(0xFFE6D3A3.toInt()), r, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    return sb
+}

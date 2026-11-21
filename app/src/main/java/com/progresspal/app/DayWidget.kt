@@ -219,7 +219,7 @@ class DayWidget : AppWidgetProvider() {
                     setTextViewText(
                         R.id.day_streak,
                         if (!salat.enabled) "Salat streak: start it in the app"
-                        else "📿 Salat streak $streak bead${if (streak == 1) "" else "s"} · best ${salat.longest?.length ?: 0}",
+                        else com.progresspal.app.ui.beadStreakText(streak, salat.longest?.length ?: 0, 2.4f),
                     )
                     setImageViewBitmap(R.id.day_beads, beadBmp)
                     setImageViewBitmap(R.id.day_timeline, tl)
