@@ -30,20 +30,40 @@ class WidgetTapActivity : Activity() {
         val prefs = getSharedPreferences("widget_tap", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val last = prefs.getLong("last", 0L)
-        if (now - last <= WINDOW_MS) {
-            prefs.edit().putLong("last", 0L).apply()
-            startActivity(
-                Intent(this, MainActivity::class.java)
-                    .putExtra(MainActivity.EXTRA_OPEN, intent.getStringExtra(MainActivity.EXTRA_OPEN) ?: "timetracker")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            )
-        } else {
-            prefs.edit().putLong("last", now).apply()
-            Toast.makeText(this, "Tap again to open", Toast.LENGTH_SHORT).show()
+        // Second tap that arrived after this screen had already closed (a slower double tap).
+        if (now - last <= WINDOW_MS) { openApp(); return }
+        prefs.edit().putLong("last", now).apply()
+
+        // First tap: stay on screen, invisible, for a moment. A quick second tap lands here
+        // (instead of being lost while the screen opens or closes) and opens the app at once.
+        val catcher = android.view.View(this)
+        catcher.setOnTouchListener { _, ev ->
+            if (ev.action == android.view.MotionEvent.ACTION_DOWN) openApp()
+            true
         }
+        setContentView(catcher)
+        catcher.postDelayed({ if (!isFinishing) close() }, CATCH_MS)
+    }
+
+    private fun openApp() {
+        getSharedPreferences("widget_tap", Context.MODE_PRIVATE).edit().putLong("last", 0L).apply()
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN, intent.getStringExtra(MainActivity.EXTRA_OPEN) ?: "timetracker")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        )
+        close()
+    }
+
+    private fun close() {
         finish()
         @Suppress("DEPRECATION") overridePendingTransition(0, 0)
     }
 
-    companion object { const val WINDOW_MS = 700L }
+    companion object {
+        /** A second tap this soon after the first, landing after the catcher closed, still counts. */
+        const val WINDOW_MS = 900L
+        /** How long the invisible catcher waits for a quick second tap. */
+        const val CATCH_MS = 450L
+    }
 }
