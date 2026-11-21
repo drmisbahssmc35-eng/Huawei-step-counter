@@ -95,7 +95,10 @@ class AzanReceiver : BroadcastReceiver() {
                 AzanScheduler.schedule(context) // tomorrow's
             }
             ACTION_STOP -> context.stopService(Intent(context, AzanService::class.java))
-            else -> AzanScheduler.schedule(context)
+            else -> {
+                AzanScheduler.schedule(context)
+                LiveService.start(context) // after reboot / update: widgets live again
+            }
         }
     }
 

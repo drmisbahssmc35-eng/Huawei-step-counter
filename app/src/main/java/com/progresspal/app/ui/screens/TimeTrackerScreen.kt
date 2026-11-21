@@ -305,6 +305,25 @@ private fun TimersTab(cache: SttCache) {
         }
         item {
             val ctx = LocalContext.current
+            var liveOn by remember { mutableStateOf(com.progresspal.app.LiveService.enabled(ctx)) }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.muted)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("📡 Live widgets", color = Pal.c.foreground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        "Widgets update every minute and the moment a timer starts or stops in Simple Time Tracker " +
+                            "(turn on its Settings → Automated tracking → Send events). Shows a quiet notification.",
+                        color = Pal.c.mutedForeground, fontSize = 12.sp,
+                    )
+                }
+                Switch(checked = liveOn, onCheckedChange = { liveOn = it; com.progresspal.app.LiveService.setEnabled(ctx, it) })
+            }
+        }
+        item {
+            val ctx = LocalContext.current
             var azanOn by remember { mutableStateOf(com.progresspal.app.AzanScheduler.enabled(ctx)) }
             val next = remember(azanOn, cache) { com.progresspal.app.AzanScheduler.nextFajr() }
             Row(

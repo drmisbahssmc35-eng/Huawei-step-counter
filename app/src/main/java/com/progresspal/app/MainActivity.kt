@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
         ProgressWidget.refresh(this)
         com.progresspal.app.data.SimpleTimeTracker.syncSoon()
         AzanScheduler.schedule(this)
+        LiveService.start(this)
     }
 }
 
