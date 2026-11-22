@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.progresspal.app.ui.screens
 
@@ -6,6 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.progresspal.app.data.deepProgress
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,7 +75,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-private val RowH = 66.dp
+private val RowH = 100.dp
 private val LeftW = 150.dp
 private val HeadH = 48.dp
 
@@ -91,8 +93,10 @@ private val ArrowShape = GenericShape { size, _ ->
 }
 
 @Composable
-fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
+fun PortfolioScreen(app: AppData, onBack: () -> Unit, onOpenTasks: (String) -> Unit = {}) {
     val pf by Portfolio.data.collectAsStateWithLifecycle()
+    val subs by com.progresspal.app.data.Subtasks.data.collectAsStateWithLifecycle()
+    var addingProject by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Project?>(null) }
     val today = LocalDate.now()
 
@@ -128,7 +132,7 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Pal.c.foreground) }
             Column(Modifier.weight(1f)) {
                 Text("Your Project Portfolio", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Pal.c.foreground)
-                Text("Tap a project to change its dates, colour or phases", fontSize = 11.sp, color = Pal.c.mutedForeground)
+                Text("Tap a bar for tasks · tap a name or hold a bar for dates, colour, phases", fontSize = 11.sp, color = Pal.c.mutedForeground)
             }
         }
         Row(
@@ -139,6 +143,7 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                 PChip(l, pf.zoom == k) { Portfolio.setScale(k) }
             }
             Spacer(Modifier.width(6.dp))
+            PChip("+ New project", false) { addingProject = true }
             Text("Completed", fontSize = 12.sp, color = Pal.c.mutedForeground)
             Switch(checked = pf.showCompleted, onCheckedChange = { Portfolio.setShowCompleted(it) })
         }
@@ -177,7 +182,7 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                             Box(Modifier.size(10.dp).background(c, CircleShape))
                             Spacer(Modifier.width(8.dp))
                             Text(p.name, Modifier.weight(1f), fontSize = 13.sp, color = Pal.c.foreground, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            HealthRing(p.progress(), c)
+                            HealthRing((p.deepProgress(subs) * 100).toInt(), c)
                         }
                     }
                 }
@@ -258,36 +263,63 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                             m = m.withDayOfMonth(1).plusMonths(1)
                         }
 
-                        // Bars
+                        // Bars: phases (if any) as a thin strip, and the project arrow filled to its progress
+                        // with two bright bars inside — time passed and tasks done.
+                        val nowMs = System.currentTimeMillis()
                         projects.forEachIndexed { i, p ->
                             val e = pf.entries[p.id] ?: PortfolioEntry()
                             val c = projColor(p, e)
-                            val top = HeadH + RowH * i + 12.dp
-                            val bars = if (e.phases.isNotEmpty()) e.phases.mapNotNull { ph ->
-                                val s = runCatching { LocalDate.parse(ph.start) }.getOrNull() ?: return@mapNotNull null
-                                val en = runCatching { LocalDate.parse(ph.end) }.getOrNull() ?: return@mapNotNull null
-                                Triple(ph.name, s, en)
-                            } else listOf(ranges.getValue(p.id).let { Triple(p.name, it.first, it.second) })
-                            bars.forEachIndexed { k, (name, s0, en0) ->
+                            val rowTop = HeadH + RowH * i
+                            val (rs0, re0) = ranges.getValue(p.id)
+                            if (e.phases.isNotEmpty()) e.phases.forEachIndexed { k, ph ->
+                                val s0 = runCatching { LocalDate.parse(ph.start) }.getOrNull() ?: return@forEachIndexed
+                                val en0 = runCatching { LocalDate.parse(ph.end) }.getOrNull() ?: return@forEachIndexed
                                 if (en0.isBefore(first) || s0.isAfter(last)) return@forEachIndexed
                                 val s = if (s0.isBefore(first)) first else s0
                                 val en = if (en0.isAfter(last)) last else en0
                                 val left = x(s); val width = (x(en.plusDays(1)) - left - 3.dp).coerceAtLeast(18.dp)
-                                // Phases alternate a lighter shade so neighbours stand apart.
-                                val shade = if (e.phases.isNotEmpty() && k % 2 == 1) c.copy(alpha = .85f) else c
                                 Box(
-                                    Modifier.offset(x = left, y = top).width(width).height(RowH - 24.dp)
-                                        .clip(ArrowShape).background(shade).clickable { editing = p }
-                                        .padding(start = 8.dp, end = 14.dp),
+                                    Modifier.offset(x = left, y = rowTop + 6.dp).width(width).height(18.dp)
+                                        .clip(ArrowShape).background(c.copy(alpha = if (k % 2 == 0) .55f else .4f))
+                                        .clickable { editing = p }.padding(start = 6.dp, end = 10.dp),
                                     contentAlignment = Alignment.CenterStart,
-                                ) {
-                                    Column {
-                                        Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (width > 90.dp) Text(
-                                            "${s.format(DateTimeFormatter.ofPattern("d MMM"))} – ${en.format(DateTimeFormatter.ofPattern("d MMM"))}",
-                                            color = Color.White.copy(alpha = .85f), fontSize = 10.sp, maxLines = 1,
-                                        )
+                                ) { Text(ph.name, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            }
+                            if (re0.isBefore(first) || rs0.isAfter(last)) return@forEachIndexed
+                            val rs = if (rs0.isBefore(first)) first else rs0
+                            val re = if (re0.isAfter(last)) last else re0
+                            val left = x(rs); val width = (x(re.plusDays(1)) - left - 3.dp).coerceAtLeast(60.dp)
+                            val barTop = rowTop + if (e.phases.isNotEmpty()) 28.dp else 10.dp
+                            val barH = RowH - (if (e.phases.isNotEmpty()) 34.dp else 20.dp)
+
+                            val prog = p.deepProgress(subs)
+                            // Time: project start 00:00 → day after end 00:00.
+                            val zone = java.time.ZoneId.systemDefault()
+                            val t0 = rs0.atStartOfDay(zone).toInstant().toEpochMilli()
+                            val t1 = re0.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                            val timeFrac = ((nowMs - t0).toFloat() / (t1 - t0).coerceAtLeast(1)).coerceIn(0f, 1f)
+                            val timeText = when {
+                                nowMs < t0 -> "starts in ${dh(t0 - nowMs)}"
+                                nowMs >= t1 -> "time over · 100% passed"
+                                else -> "${dh(t1 - nowMs)} left · ${(timeFrac * 100).toInt()}% passed"
+                            }
+                            val doneT = p.tasks.count { it.completed }
+                            val taskFrac = if (p.tasks.isEmpty()) 0f else doneT.toFloat() / p.tasks.size
+
+                            Box(
+                                Modifier.offset(x = left, y = barTop).width(width).height(barH)
+                                    .clip(ArrowShape).background(c.copy(alpha = .35f))
+                                    .combinedClickable(onClick = { onOpenTasks(p.id) }, onLongClick = { editing = p }),
+                            ) {
+                                // Filled part = project progress.
+                                Box(Modifier.fillMaxWidth(prog.coerceIn(0f, 1f)).fillMaxHeight().background(c))
+                                Column(Modifier.fillMaxSize().padding(start = 8.dp, end = 18.dp, top = 5.dp, bottom = 5.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(p.name, Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("${(prog * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
                                     }
+                                    InnerBar(timeFrac, listOf(Color(0xFF18FFFF), Color(0xFF2979FF)), "⏱ $timeText", width > 150.dp)
+                                    InnerBar(taskFrac, listOf(Color(0xFFC6FF00), Color(0xFF00E676)), "✓ $doneT/${p.tasks.size} tasks · ${(taskFrac * 100).toInt()}%", width > 150.dp)
                                 }
                             }
                         }
@@ -312,6 +344,10 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
         }
     }
 
+    if (addingProject) NameDialog("New project", "") { name ->
+        if (name != null && name.isNotBlank()) com.progresspal.app.data.AppStore.addProject(name.trim(), com.progresspal.app.data.ProjectColor.BLUE, null, null)
+        addingProject = false
+    }
     editing?.let { p ->
         PortfolioEditor(p, Portfolio.entry(p.id), projects.map { it.id }) { editing = null }
     }
@@ -353,6 +389,7 @@ private fun PortfolioEditor(p: Project, initial: PortfolioEntry, order: List<Str
     var pickStart by remember { mutableStateOf(false) }
     var pickEnd by remember { mutableStateOf(false) }
     var phaseEdit by remember { mutableStateOf<PortfolioPhase?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val f = DateTimeFormatter.ofPattern("d MMM yyyy")
 
     fun entry() = initial.copy(start = start.toString(), end = end.toString(), color = color, phases = phases, hidden = hidden)
@@ -408,6 +445,7 @@ private fun PortfolioEditor(p: Project, initial: PortfolioEntry, order: List<Str
                 TextButton(onClick = {
                     Portfolio.save(p.id, PortfolioEntry(order = initial.order)); onDismiss()
                 }) { Text("Reset to project dates", color = Pal.c.destructive) }
+                TextButton(onClick = { confirmDelete = true }) { Text("Delete project", color = Pal.c.destructive) }
             }
         },
         confirmButton = {
@@ -420,6 +458,20 @@ private fun PortfolioEditor(p: Project, initial: PortfolioEntry, order: List<Str
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 
+    if (confirmDelete) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        containerColor = Pal.c.card,
+        title = { Text("Delete ${p.name}?", color = Pal.c.foreground) },
+        text = { Text("The project, its tasks and subtasks will be deleted.", color = Pal.c.foreground) },
+        confirmButton = {
+            TextButton(onClick = {
+                p.tasks.forEach { com.progresspal.app.data.Subtasks.deleteUnder(it.id) }
+                com.progresspal.app.data.AppStore.deleteProject(p.id)
+                confirmDelete = false; onDismiss()
+            }) { Text("Delete", color = Pal.c.destructive) }
+        },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+    )
     if (pickStart) DatePickerModal(start, { pickStart = false }) { start = it; if (end.isBefore(it)) end = it; pickStart = false }
     if (pickEnd) DatePickerModal(end, { pickEnd = false }) { end = if (it.isBefore(start)) start else it; pickEnd = false }
     phaseEdit?.let { ph ->
@@ -470,4 +522,22 @@ private fun Label2(t: String) {
     Spacer(Modifier.height(12.dp))
     Text(t, color = Pal.c.mutedForeground, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(6.dp))
+}
+
+/** "1d 18h" / "5h 20m" / "12m". */
+private fun dh(ms: Long): String {
+    val m = (ms / 60_000).coerceAtLeast(0)
+    val d = m / 1440; val h = (m % 1440) / 60; val mm = m % 60
+    return when { d > 0 -> "${d}d ${h}h"; h > 0 -> "${h}h ${mm}m"; else -> "${mm}m" }
+}
+
+/** Slim bright bar inside the project arrow, with its label. */
+@Composable
+private fun InnerBar(frac: Float, colors: List<Color>, label: String, showLabel: Boolean) {
+    Column {
+        if (showLabel) Text(label, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = .3f))) {
+            Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(androidx.compose.ui.graphics.Brush.horizontalGradient(colors)))
+        }
+    }
 }
