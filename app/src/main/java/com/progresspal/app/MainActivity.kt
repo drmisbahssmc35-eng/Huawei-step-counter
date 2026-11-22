@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.SimpleTimeTracker.init(applicationContext)
         com.progresspal.app.data.Planner.init(applicationContext)
         com.progresspal.app.data.DailyOrder.init(applicationContext)
+        com.progresspal.app.data.Portfolio.init(applicationContext)
         handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         // Needed for the Azan's Stop notification (Android 13+).
@@ -128,6 +129,7 @@ fun App() {
                 onOpenCompleted = { nav.navigate("completed") },
                 onOpenBackup = { nav.navigate("backup") },
                 onOpenTimeTracker = { nav.navigate("timetracker") },
+                onOpenPortfolio = { nav.navigate("portfolio") },
             )
         }
         composable("project/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -142,6 +144,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
+        composable("portfolio") { com.progresspal.app.ui.screens.PortfolioScreen(data, back) }
         composable("timetracker") { com.progresspal.app.ui.screens.TimeTrackerScreen(data, back) }
     }
     // On every page: a small button that opens Simple Time Tracker.
