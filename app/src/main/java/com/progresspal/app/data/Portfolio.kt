@@ -39,8 +39,10 @@ data class PortfolioEntry(
 data class PortfolioData(
     val entries: Map<String, PortfolioEntry> = emptyMap(),
     val showCompleted: Boolean = false,
-    /** "week", "month" or "quarter" — how wide a day is drawn. */
+    /** Old setting, no longer used (kept so saved files still load). */
     val scale: String = "month",
+    /** "hour", "day" (default), "week", "month" or "quarter" — how wide a day is drawn. */
+    val zoom: String = "day",
 )
 
 /** Project portfolio settings, kept on the phone. */
@@ -66,7 +68,7 @@ object Portfolio {
 
     fun save(projectId: String, e: PortfolioEntry) = update { it.copy(entries = it.entries + (projectId to e)) }
 
-    fun setScale(s: String) = update { it.copy(scale = s) }
+    fun setScale(s: String) = update { it.copy(zoom = s) }
     fun setShowCompleted(on: Boolean) = update { it.copy(showCompleted = on) }
 
     /** Moves a project up (-1) or down (+1) among [ids] (the current visible order). */

@@ -103,16 +103,22 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
     val ranges = projects.associate { it.id to portfolioRange(it, pf.entries[it.id] ?: PortfolioEntry()) }
 
     // Timeline: from a week before the first start to two weeks after the last end, always including today.
-    val first = (ranges.values.map { it.first } + today).min().minusDays(7).let { it.minusDays(((it.dayOfWeek.value - 1).toLong())) }
-    val last = (ranges.values.map { it.second } + today).max().plusDays(14)
+    var first = (ranges.values.map { it.first } + today).min().minusDays(7).let { it.minusDays(((it.dayOfWeek.value - 1).toLong())) }
+    var last = (ranges.values.map { it.second } + today).max().plusDays(14)
+    // Fine zooms draw a shorter stretch around today so the page stays light.
+    when (pf.zoom) {
+        "hour" -> { if (first.isBefore(today.minusDays(7))) first = today.minusDays(7); if (last.isAfter(today.plusDays(21))) last = today.plusDays(21) }
+        "day" -> { if (first.isBefore(today.minusDays(60))) first = today.minusDays(60); if (last.isAfter(today.plusDays(150))) last = today.plusDays(150) }
+    }
     val days = ChronoUnit.DAYS.between(first, last).toInt() + 1
-    val dayW: Dp = when (pf.scale) { "week" -> 22.dp; "quarter" -> 3.dp; else -> 8.dp }
+    val dayW: Dp = when (pf.zoom) { "hour" -> 480.dp; "day" -> 96.dp; "week" -> 22.dp; "quarter" -> 3.dp; else -> 8.dp }
+    val nowFrac = java.time.LocalTime.now().toSecondOfDay() / 86_400f
     fun x(d: LocalDate): Dp = dayW * ChronoUnit.DAYS.between(first, d).toFloat()
 
     val hScroll = rememberScrollState()
     val density = LocalDensity.current
-    LaunchedEffect(pf.scale, first) {
-        val px = with(density) { (x(today) - 60.dp).toPx() }.toInt().coerceAtLeast(0)
+    LaunchedEffect(pf.zoom, first) {
+        val px = with(density) { (x(today) + dayW * nowFrac - 80.dp).toPx() }.toInt().coerceAtLeast(0)
         hScroll.scrollTo(px)
     }
 
@@ -129,8 +135,8 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
             Modifier.fillMaxWidth().padding(horizontal = 12.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
-            listOf("week" to "Weeks", "month" to "Months", "quarter" to "Quarters").forEach { (k, l) ->
-                PChip(l, pf.scale == k) { Portfolio.setScale(k) }
+            listOf("hour" to "Hours", "day" to "Days", "week" to "Weeks", "month" to "Months", "quarter" to "Quarters").forEach { (k, l) ->
+                PChip(l, pf.zoom == k) { Portfolio.setScale(k) }
             }
             Spacer(Modifier.width(6.dp))
             Text("Completed", fontSize = 12.sp, color = Pal.c.mutedForeground)
@@ -183,13 +189,13 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                     val totalH = HeadH + RowH * projects.size
                     Box(Modifier.width(totalW).height(totalH)) {
                         // Week lines and calendar-date labels (every day when zoomed to weeks).
-                        val weekStep = if (pf.scale == "quarter") 4 else 1
+                        val weekStep = if (pf.zoom == "quarter") 4 else 1
                         var w = 0
                         var d = first
                         while (!d.isAfter(last)) {
-                            if (w % weekStep == 0) {
+                            if (w % weekStep == 0 && pf.zoom != "day" && pf.zoom != "hour") {
                                 Box(Modifier.offset(x = x(d), y = HeadH).width(1.dp).height(RowH * projects.size).background(Pal.c.border.copy(alpha = .5f)))
-                                if (pf.scale != "week") Text(
+                                if (pf.zoom != "week") Text(
                                     d.format(DateTimeFormatter.ofPattern("d MMM")),
                                     Modifier.offset(x = x(d) + 3.dp, y = 26.dp), fontSize = 10.sp,
                                     color = if (!d.isAfter(today) && today.isBefore(d.plusWeeks(weekStep.toLong()))) Color(0xFF1565C0) else Pal.c.mutedForeground,
@@ -198,7 +204,33 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                             }
                             w++; d = d.plusWeeks(1)
                         }
-                        if (pf.scale == "week") {
+                        // Days view: weekday + date per day, faint lines every 6 hours.
+                        if (pf.zoom == "day" || pf.zoom == "hour") {
+                            var dd = first
+                            while (!dd.isAfter(last)) {
+                                val isToday = dd == today
+                                Box(Modifier.offset(x = x(dd), y = HeadH).width(1.dp).height(RowH * projects.size).background(Pal.c.border.copy(alpha = .7f)))
+                                Text(
+                                    dd.format(DateTimeFormatter.ofPattern(if (pf.zoom == "hour") "EEE d MMM" else "EEE d")),
+                                    Modifier.offset(x = x(dd) + 4.dp, y = if (pf.zoom == "hour") 6.dp else 24.dp),
+                                    fontSize = 11.sp, maxLines = 1,
+                                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = if (isToday) Color(0xFF1565C0) else if (dd.dayOfWeek.value >= 6) Pal.c.mutedForeground else Pal.c.foreground,
+                                )
+                                val step = if (pf.zoom == "hour") 1 else 6
+                                for (h in step until 24 step step) {
+                                    val hx = x(dd) + dayW * (h / 24f)
+                                    Box(Modifier.offset(x = hx, y = HeadH).width(1.dp).height(RowH * projects.size).background(Pal.c.border.copy(alpha = if (h % 6 == 0) .35f else .18f)))
+                                    if (pf.zoom == "hour" || h % 6 == 0) Text(
+                                        when { h == 12 -> "12p"; h < 12 -> "${h}a"; else -> "${h - 12}p" },
+                                        Modifier.offset(x = hx + 2.dp, y = if (pf.zoom == "hour") 28.dp else 38.dp),
+                                        fontSize = if (pf.zoom == "hour") 10.sp else 8.sp, color = Pal.c.mutedForeground, maxLines = 1,
+                                    )
+                                }
+                                dd = dd.plusDays(1)
+                            }
+                        }
+                        if (pf.zoom == "week") {
                             var dd = first
                             while (!dd.isAfter(last)) {
                                 Text(
@@ -216,13 +248,14 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                             }
                         }
                         var m = first.withDayOfMonth(1).let { if (it.isBefore(first)) it.plusMonths(1) else it }
-                        while (!m.isAfter(last)) {
+                        if (pf.zoom == "day") m = first // the month name sits at the start of the view too
+                        while (pf.zoom != "hour" && !m.isAfter(last)) {
                             Text(
                                 m.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
                                 Modifier.offset(x = x(m) + 3.dp, y = 6.dp), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                                 color = Pal.c.foreground, maxLines = 1,
                             )
-                            m = m.plusMonths(1)
+                            m = m.withDayOfMonth(1).plusMonths(1)
                         }
 
                         // Bars
@@ -235,7 +268,10 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                                 val en = runCatching { LocalDate.parse(ph.end) }.getOrNull() ?: return@mapNotNull null
                                 Triple(ph.name, s, en)
                             } else listOf(ranges.getValue(p.id).let { Triple(p.name, it.first, it.second) })
-                            bars.forEachIndexed { k, (name, s, en) ->
+                            bars.forEachIndexed { k, (name, s0, en0) ->
+                                if (en0.isBefore(first) || s0.isAfter(last)) return@forEachIndexed
+                                val s = if (s0.isBefore(first)) first else s0
+                                val en = if (en0.isAfter(last)) last else en0
                                 val left = x(s); val width = (x(en.plusDays(1)) - left - 3.dp).coerceAtLeast(18.dp)
                                 // Phases alternate a lighter shade so neighbours stand apart.
                                 val shade = if (e.phases.isNotEmpty() && k % 2 == 1) c.copy(alpha = .85f) else c
@@ -257,7 +293,7 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                         }
 
                         // Today line + pill
-                        val tx = x(today) + dayW / 2
+                        val tx = x(today) + if (pf.zoom == "hour" || pf.zoom == "day") dayW * nowFrac else dayW / 2
                         Canvas(Modifier.offset(x = tx).width(2.dp).height(totalH)) {
                             drawLine(
                                 Color(0xFF1565C0), Offset(0f, 18.dp.toPx()), Offset(0f, size.height),
