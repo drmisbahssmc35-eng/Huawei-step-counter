@@ -182,21 +182,43 @@ fun PortfolioScreen(app: AppData, onBack: () -> Unit) {
                     val totalW = dayW * days.toFloat()
                     val totalH = HeadH + RowH * projects.size
                     Box(Modifier.width(totalW).height(totalH)) {
-                        // Week lines, week and month labels
-                        val weekStep = when (pf.scale) { "week" -> 1; "quarter" -> 4; else -> 1 }
+                        // Week lines and calendar-date labels (every day when zoomed to weeks).
+                        val weekStep = if (pf.scale == "quarter") 4 else 1
                         var w = 0
                         var d = first
                         while (!d.isAfter(last)) {
                             if (w % weekStep == 0) {
                                 Box(Modifier.offset(x = x(d), y = HeadH).width(1.dp).height(RowH * projects.size).background(Pal.c.border.copy(alpha = .5f)))
-                                Text("W${w + 1}", Modifier.offset(x = x(d) + 3.dp, y = 26.dp), fontSize = 10.sp, color = Pal.c.mutedForeground, maxLines = 1)
+                                if (pf.scale != "week") Text(
+                                    d.format(DateTimeFormatter.ofPattern("d MMM")),
+                                    Modifier.offset(x = x(d) + 3.dp, y = 26.dp), fontSize = 10.sp,
+                                    color = if (!d.isAfter(today) && today.isBefore(d.plusWeeks(weekStep.toLong()))) Color(0xFF1565C0) else Pal.c.mutedForeground,
+                                    maxLines = 1,
+                                )
                             }
                             w++; d = d.plusWeeks(1)
+                        }
+                        if (pf.scale == "week") {
+                            var dd = first
+                            while (!dd.isAfter(last)) {
+                                Text(
+                                    "${dd.dayOfMonth}",
+                                    Modifier.offset(x = x(dd), y = 26.dp).width(dayW),
+                                    fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1,
+                                    fontWeight = if (dd == today) FontWeight.Bold else FontWeight.Normal,
+                                    color = when {
+                                        dd == today -> Color(0xFF1565C0)
+                                        dd.dayOfWeek.value >= 6 -> Pal.c.mutedForeground.copy(alpha = .6f)
+                                        else -> Pal.c.mutedForeground
+                                    },
+                                )
+                                dd = dd.plusDays(1)
+                            }
                         }
                         var m = first.withDayOfMonth(1).let { if (it.isBefore(first)) it.plusMonths(1) else it }
                         while (!m.isAfter(last)) {
                             Text(
-                                m.format(DateTimeFormatter.ofPattern(if (pf.scale == "quarter") "MMM yy" else "MMM d, yy")),
+                                m.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
                                 Modifier.offset(x = x(m) + 3.dp, y = 6.dp), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                                 color = Pal.c.foreground, maxLines = 1,
                             )
