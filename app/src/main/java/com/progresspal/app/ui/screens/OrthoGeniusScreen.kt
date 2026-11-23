@@ -66,6 +66,7 @@ import com.progresspal.app.data.OExam
 import com.progresspal.app.data.OQuestion
 import com.progresspal.app.data.ORTHO_CHAPTERS
 import com.progresspal.app.data.ORTHO_RANKS
+import com.progresspal.app.data.OrthoCloud
 import com.progresspal.app.data.OrthoExam
 import com.progresspal.app.data.SimpleTimeTracker
 import com.progresspal.app.ui.components.Sounds
@@ -118,7 +119,9 @@ private fun Dashboard(onBack: () -> Unit, onExam: (String) -> Unit, onReview: (S
     var generating by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<OExam?>(null) }
     LaunchedEffect(Unit) { OrthoExam.openExam() }
-    val open = d.exams.firstOrNull { !it.completed && System.currentTimeMillis() - it.startedAt < OrthoExam.EXAM_SECONDS * 1000L }
+    val cloud by OrthoCloud.status.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { OrthoCloud.sync() }
+    val open = d.exams.firstOrNull { !it.completed && it.questions.isNotEmpty() && System.currentTimeMillis() - it.startedAt < OrthoExam.EXAM_SECONDS * 1000L }
 
     val answered = OrthoExam.answered(d)
     val total = answered.size
@@ -126,7 +129,7 @@ private fun Dashboard(onBack: () -> Unit, onExam: (String) -> Unit, onReview: (S
     val daily = OrthoExam.daily(d)
     val avgPerDay = if (daily.isEmpty()) 0 else total / daily.size
     val today = daily[LocalDate.now()] ?: 0
-    val done = d.exams.filter { it.completed }
+    val done = d.exams.filter { it.completed && it.questions.isNotEmpty() }
     val avgScore = if (done.isEmpty()) 0 else done.sumOf { it.scorePct } / done.size
 
     Column(Modifier.fillMaxSize().background(Pal.c.background).safeDrawingPadding()) {
@@ -146,6 +149,7 @@ private fun Dashboard(onBack: () -> Unit, onExam: (String) -> Unit, onReview: (S
         }
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AccountCard(cloud, ctx)
             DailyGoalCard(today)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OStat("✅", "$total", "Total solved", Modifier.weight(1f))
@@ -180,7 +184,7 @@ private fun Dashboard(onBack: () -> Unit, onExam: (String) -> Unit, onReview: (S
 
             Text("Exam History", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Pal.c.foreground, modifier = Modifier.padding(top = 6.dp))
             if (done.isEmpty()) Text("No exams yet. Start your first exam!", Modifier.fillMaxWidth().padding(vertical = 24.dp), color = Pal.c.mutedForeground, textAlign = TextAlign.Center)
-            done.forEach { e -> ExamCard(e, { onReview(e.id) }, { deleting = e }) }
+            done.forEach { e -> ExamCard(e, { onReview(e.id) }, if (OrthoCloud.signedIn) null else ({ deleting = e })) }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -193,6 +197,42 @@ private fun Dashboard(onBack: () -> Unit, onExam: (String) -> Unit, onReview: (S
             confirmButton = { TextButton(onClick = { OrthoExam.deleteExam(e.id); deleting = null }) { Text("Delete", color = Pal.c.destructive) } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun AccountCard(st: OrthoCloud.Status, ctx: Context) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.c.card).border(1.dp, Pal.c.border, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!OrthoCloud.signedIn) {
+            Column(Modifier.weight(1f)) {
+                Text("Use your OrthoPrep account", fontWeight = FontWeight.SemiBold, color = Pal.c.foreground, fontSize = 14.sp)
+                Text("Sign in to get your web exams, answers and stats here and keep both in sync", fontSize = 11.sp, color = Pal.c.mutedForeground)
+            }
+            Text(
+                "G  Sign in", Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).border(1.dp, Color(0xFF747775), RoundedCornerShape(10.dp))
+                    .clickable { OrthoCloud.startSignIn(ctx) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                color = Color(0xFF1F1F1F), fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+            )
+        } else {
+            Column(Modifier.weight(1f)) {
+                Text("☁ ${st.email ?: "Signed in"}", fontWeight = FontWeight.SemiBold, color = Pal.c.foreground, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    when {
+                        st.syncing -> "Syncing…"
+                        st.error != null -> "Sync failed: ${st.error.take(60)}"
+                        st.lastSync > 0 -> "Synced with the OrthoPrep web app"
+                        else -> "Synced with your Google account"
+                    },
+                    fontSize = 11.sp, color = if (st.error != null && !st.syncing) Bad else Pal.c.mutedForeground, maxLines = 2,
+                )
+            }
+            if (st.syncing) CircularProgressIndicator(Modifier.size(18.dp), color = Teal, strokeWidth = 2.dp)
+            else TextButton(onClick = { OrthoCloud.sync() }) { Text("Sync", fontSize = 12.sp) }
+            TextButton(onClick = { OrthoCloud.signOut() }) { Text("Sign out", fontSize = 12.sp, color = Pal.c.mutedForeground) }
+        }
     }
 }
 
@@ -280,7 +320,7 @@ private fun DailyGoalCard(today: Int) {
 }
 
 @Composable
-private fun ExamCard(e: OExam, onReview: () -> Unit, onDelete: () -> Unit) {
+private fun ExamCard(e: OExam, onReview: () -> Unit, onDelete: (() -> Unit)?) {
     val pct = e.scorePct
     val col = when { pct >= 70 -> Good; pct >= 50 -> Amber; else -> Bad }
     val fmt = DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a")
@@ -299,7 +339,7 @@ private fun ExamCard(e: OExam, onReview: () -> Unit, onDelete: () -> Unit) {
         }
         Column(horizontalAlignment = Alignment.End) {
             if (e.wrongCount > 0) TextButton(onClick = onReview) { Text("Review wrong", fontSize = 12.sp) }
-            TextButton(onClick = onDelete) { Text("Delete", fontSize = 11.sp, color = Pal.c.mutedForeground) }
+            if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete", fontSize = 11.sp, color = Pal.c.mutedForeground) }
         }
     }
 }
@@ -523,7 +563,7 @@ private fun OrthoAnalytics(onBack: () -> Unit) {
     var period by rememberSaveable { mutableIntStateOf(0) }
     val daily = OrthoExam.daily(d)
     val total = OrthoExam.answered(d).size
-    val exams = d.exams.filter { it.completed }.sortedBy { it.number }
+    val exams = d.exams.filter { it.completed && it.questions.isNotEmpty() }.sortedBy { it.number }
     val weak = OrthoExam.weakTopics(d)
 
     Column(Modifier.fillMaxSize().background(Pal.c.background).safeDrawingPadding()) {

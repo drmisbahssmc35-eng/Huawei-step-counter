@@ -30,6 +30,7 @@ import java.util.UUID
 /** One MCQ inside an exam, with the answer given (if any). */
 @Serializable
 data class OQuestion(
+    val id: String = UUID.randomUUID().toString(),
     val text: String,
     val a: String,
     val b: String,
@@ -44,6 +45,8 @@ data class OQuestion(
     val isCorrect: Boolean? = null,
     val answeredAt: Long? = null,
     val timesShown: Int = 1,
+    /** Saved to the signed-in account. */
+    val synced: Boolean = false,
 ) {
     fun option(k: String) = when (k) { "A" -> a; "B" -> b; "C" -> c; else -> d }
 }
@@ -56,6 +59,8 @@ data class OExam(
     val completedAt: Long? = null,
     val questions: List<OQuestion> = emptyList(),
     val timeTakenS: Int? = null,
+    /** Exam row saved to the signed-in account as it is now. */
+    val synced: Boolean = false,
 ) {
     val completed get() = completedAt != null
     val correctCount get() = questions.count { it.isCorrect == true }
@@ -120,7 +125,7 @@ val ORTHO_CHAPTERS: List<OChapter> =
 object OrthoExam {
     const val EXAM_SECONDS = 600
     const val EXAM_SIZE = 10
-    private const val KEY =
+    const val ANON_KEY =
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlna2tjcW9zZXdnYnBsaXl6bnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2NjA3MjAsImV4cCI6MjA4NzIzNjcyMH0.lDUoWwn01QEu6-dBof4GRes5QQsxcEz5RVFVk4mpY90"
     private val ENDPOINTS = listOf(
         "https://igkkcqosewgbpliyznzo.supabase.co/functions/v1/generate-questions",
@@ -190,12 +195,13 @@ object OrthoExam {
     /** The exam in progress whose time hasn't run out; ones that ran out are closed. */
     fun openExam(): OExam? {
         val now = System.currentTimeMillis()
-        _data.value.exams.filter { !it.completed && now - it.startedAt >= EXAM_SECONDS * 1000L }.forEach { complete(it.id) }
-        return _data.value.exams.firstOrNull { !it.completed }
+        _data.value.exams.filter { !it.completed && it.questions.isNotEmpty() && now - it.startedAt >= EXAM_SECONDS * 1000L }.forEach { complete(it.id) }
+        return _data.value.exams.firstOrNull { !it.completed && it.questions.isNotEmpty() }
     }
 
     /** Asks the question generator for a new exam: fresh questions mixed with up to 3 earlier wrong ones. */
     suspend fun generate(): OExam {
+        runCatching { OrthoCloud.syncNow() }
         val d = _data.value
         val all = answered(d)
         // Hashes answered correctly or shown 3+ times are not asked again.
@@ -239,6 +245,7 @@ object OrthoExam {
 
         val exam = OExam(number = (d.exams.maxOfOrNull { it.number } ?: 0) + 1, questions = qs)
         update { it.copy(exams = listOf(exam) + it.exams) }
+        OrthoCloud.pushSoon()
         return exam
     }
 
@@ -248,7 +255,7 @@ object OrthoExam {
         update { d ->
             val shownBefore = answered(d).groupBy { it.hash }.mapValues { (_, qs) -> qs.maxOf { it.timesShown } }
             d.copy(exams = d.exams.map { e ->
-                if (e.id != examId) e else e.copy(questions = e.questions.mapIndexed { i, q ->
+                if (e.id != examId) e else e.copy(synced = false, questions = e.questions.mapIndexed { i, q ->
                     if (i != index || q.userAnswer != null) q else {
                         right = choice == q.correct
                         q.copy(userAnswer = choice, isCorrect = right, answeredAt = System.currentTimeMillis(), timesShown = (shownBefore[q.hash] ?: 0) + 1)
@@ -256,15 +263,52 @@ object OrthoExam {
                 })
             })
         }
+        OrthoCloud.pushSoon()
         return right
     }
 
-    fun complete(examId: String) = update { d ->
+    fun complete(examId: String) { completeLocal(examId); OrthoCloud.pushSoon() }
+
+    private fun completeLocal(examId: String) = update { d ->
         d.copy(exams = d.exams.map { e ->
             if (e.id != examId || e.completed) e else {
                 val now = System.currentTimeMillis()
-                e.copy(completedAt = now, timeTakenS = ((now - e.startedAt) / 1000).toInt().coerceAtMost(EXAM_SECONDS))
+                e.copy(synced = false, completedAt = now, timeTakenS = ((now - e.startedAt) / 1000).toInt().coerceAtMost(EXAM_SECONDS))
             }
+        })
+    }
+
+    /**
+     * Merges the account's exams in: phone-only details (unanswered questions of an open exam) are kept,
+     * answers made elsewhere are added, and exams not uploaded yet stay (renumbered after the account's).
+     */
+    fun mergeCloud(cloud: List<OExam>) = update { d ->
+        val local = d.exams.associateBy { it.id }
+        val merged = cloud.map { c ->
+            val l = local[c.id] ?: return@map c
+            val byId = c.questions.associateBy { it.id }
+            val qs = l.questions.map { q -> if (q.userAnswer == null) byId[q.id] ?: q else q } +
+                c.questions.filter { cq -> l.questions.none { it.id == cq.id } }
+            l.copy(
+                questions = qs,
+                completedAt = l.completedAt ?: c.completedAt,
+                timeTakenS = l.timeTakenS ?: c.timeTakenS,
+            )
+        }
+        val cloudIds = cloud.map { it.id }.toSet()
+        var next = (cloud.maxOfOrNull { it.number } ?: 0) + 1
+        val pending = d.exams.filter { it.id !in cloudIds && !it.synced }.sortedBy { it.startedAt }
+            .map { e -> if (cloud.any { it.number == e.number }) e.copy(number = next++) else e.also { next = maxOf(next, it.number + 1) } }
+        d.copy(exams = (merged + pending).sortedByDescending { it.number })
+    }
+
+    /** Marks what was uploaded as saved, unless it changed meanwhile. */
+    fun markSynced(exams: List<OExam>, questions: List<OQuestion>) = update { d ->
+        val ex = exams.associateBy { it.id }
+        val qi = questions.associateBy { it.id }
+        d.copy(exams = d.exams.map { e ->
+            val base = if (ex[e.id] == e) e.copy(synced = true) else e
+            base.copy(questions = base.questions.map { q -> if (qi[q.id] == q) q.copy(synced = true) else q })
         })
     }
 
@@ -281,8 +325,8 @@ object OrthoExam {
                 c.readTimeout = 150_000
                 c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json")
-                c.setRequestProperty("apikey", KEY)
-                c.setRequestProperty("Authorization", "Bearer $KEY")
+                c.setRequestProperty("apikey", ANON_KEY)
+                c.setRequestProperty("Authorization", "Bearer $ANON_KEY")
                 c.outputStream.use { it.write(body.toByteArray()) }
                 val code = c.responseCode
                 val txt = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()

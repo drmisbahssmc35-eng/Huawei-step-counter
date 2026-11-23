@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.Subtasks.init(applicationContext)
         com.progresspal.app.data.WatchTracker.init(applicationContext)
         com.progresspal.app.data.OrthoExam.init(applicationContext)
+        com.progresspal.app.data.OrthoCloud.init(applicationContext)
         handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         // Needed for the Azan's Stop notification (Android 13+).
@@ -91,6 +92,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuth(intent: android.content.Intent?) {
         if (Cloud.handleRedirect(intent?.data)) toast(this, "Signed in — syncing your data…")
+        if (com.progresspal.app.data.OrthoCloud.handleRedirect(intent?.data)) {
+            toast(this, "Signed in to OrthoPrep — syncing your exams…")
+            pendingRoute.value = "ortho"
+        }
     }
 
     override fun onResume() {
