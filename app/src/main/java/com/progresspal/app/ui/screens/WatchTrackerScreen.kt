@@ -284,6 +284,27 @@ private fun PlayerDialog(v: WVideo, onClose: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var minText by remember { mutableStateOf("") }
     var secText by remember { mutableStateOf("") }
+
+    // Record the watching as the "Dr. Vinay Sing Video" activity in Simple Time Tracker:
+    // started when the player opens, stopped when it closes (or the video ends).
+    val act = remember {
+        val acts = com.progresspal.app.data.SimpleTimeTracker.cache.value.activities
+        acts.firstOrNull { it.name.contains("vinay", ignoreCase = true) }
+            ?: acts.firstOrNull { it.name.contains("video", ignoreCase = true) }
+    }
+    var startedByUs by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (act == null) toast(ctx, "Tip: add a \"Dr. Vinay Sing Video\" activity in Simple Time Tracker to record watching on the timeline")
+        else if (!com.progresspal.app.data.SimpleTimeTracker.isRunning(act.id)) {
+            com.progresspal.app.data.SimpleTimeTracker.start(act, v.title)
+            startedByUs = true
+        }
+    }
+    val stopActivity: () -> Unit = {
+        if (startedByUs && act != null && com.progresspal.app.data.SimpleTimeTracker.isRunning(act.id)) com.progresspal.app.data.SimpleTimeTracker.toggle(act)
+        startedByUs = false
+    }
+    DisposableEffect(Unit) { onDispose { stopActivity() } }
     LaunchedEffect(startedAt) {
         while (startedAt > 0) {
             now = System.currentTimeMillis()
@@ -328,7 +349,7 @@ private fun PlayerDialog(v: WVideo, onClose: () -> Unit) {
                             webChromeClient = WebChromeClient()
                             addJavascriptInterface(PlayerBridge(
                                 onProgress = { t -> WatchTracker.progress(v.id, t) },
-                                onEnded = { WatchTracker.complete(v.id); com.progresspal.app.ui.components.Sounds.done(c); toast(c, "Video completed! 🎉") },
+                                onEnded = { WatchTracker.complete(v.id); stopActivity(); com.progresspal.app.ui.components.Sounds.done(c); toast(c, "Video completed! 🎉") },
                                 onError = { fallback = true },
                             ), "Android")
                             loadDataWithBaseURL("https://progresspal.app/", html, "text/html", "utf-8", null)
@@ -365,7 +386,10 @@ private fun PlayerDialog(v: WVideo, onClose: () -> Unit) {
                     }) { Text(if (startedAt > 0) "Reopen on YouTube" else "Watch on YouTube (starts timer)", color = Accent) }
                 }
             }
-            Text("⏱ ${fmtWatch(v.watchedS)} / ${fmtWatch(v.durationS)} watched", Modifier.padding(top = 6.dp), fontSize = 12.sp, color = Pal.c.mutedForeground)
+            Text(
+                "⏱ ${fmtWatch(v.watchedS)} / ${fmtWatch(v.durationS)} watched" + (act?.let { "  ·  ▶ recording as ${it.name}" } ?: ""),
+                Modifier.padding(top = 6.dp), fontSize = 12.sp, color = Pal.c.mutedForeground,
+            )
         }
     }
 }
