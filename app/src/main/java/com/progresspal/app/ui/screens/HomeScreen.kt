@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.SportsMartialArts
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.progresspal.app.data.SimpleTimeTracker
 import androidx.compose.material3.Button
@@ -73,6 +74,7 @@ fun HomeScreen(
     onOpenBackup: () -> Unit,
     onOpenTimeTracker: () -> Unit,
     onOpenPortfolio: () -> Unit,
+    onOpenWatch: () -> Unit,
 ) {
     var selected by rememberSaveable { mutableStateOf(today()) }
     var showAdd by remember { mutableStateOf(false) }
@@ -130,6 +132,7 @@ fun HomeScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LinkCard(Icons.Filled.SportsMartialArts, Brand.coral, "Time vs Task Challenge", "Beat the clock, complete your tasks!", onOpenChallenge)
             LinkCard(Icons.Filled.Timeline, Brand.blue, "Project Portfolio", "All ongoing projects on one timeline", onOpenPortfolio)
+            LinkCard(Icons.Filled.OndemandVideo, Brand.coral, "Vinay Watch Tracker", "Dr. Vinay Singh's videos · watch time, streaks, ranks", onOpenWatch)
             LinkCard(Icons.AutoMirrored.Filled.TrendingUp, Brand.purple, "Analytics", "View your productivity insights", onOpenAnalytics)
             if (doneCount > 0) {
                 Spacer(Modifier.height(12.dp))

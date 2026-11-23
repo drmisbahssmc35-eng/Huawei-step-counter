@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.DailyOrder.init(applicationContext)
         com.progresspal.app.data.Portfolio.init(applicationContext)
         com.progresspal.app.data.Subtasks.init(applicationContext)
+        com.progresspal.app.data.WatchTracker.init(applicationContext)
         handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         // Needed for the Azan's Stop notification (Android 13+).
@@ -131,6 +132,7 @@ fun App() {
                 onOpenBackup = { nav.navigate("backup") },
                 onOpenTimeTracker = { nav.navigate("timetracker") },
                 onOpenPortfolio = { nav.navigate("portfolio") },
+                onOpenWatch = { nav.navigate("watch") },
             )
         }
         composable("project/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -145,6 +147,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
+        composable("watch") { com.progresspal.app.ui.screens.WatchTrackerScreen(back) }
         composable("portfolio") { com.progresspal.app.ui.screens.PortfolioScreen(data, back) { nav.navigate("ptasks/$it") } }
         composable("ptasks/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
             com.progresspal.app.ui.screens.ProjectTasksScreen(data, entry.arguments?.getString("id") ?: "", back)
