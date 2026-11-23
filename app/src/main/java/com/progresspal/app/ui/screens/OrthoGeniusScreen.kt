@@ -93,6 +93,8 @@ fun OrthoGeniusScreen(onBack: () -> Unit) {
     var examId by rememberSaveable { mutableStateOf<String?>(null) }
     var reviewId by rememberSaveable { mutableStateOf<String?>(null) }
     val goHome = { view = "home" }
+    // Time spent here is recorded as "Study with Orthopaedic Genius App" in Simple Time Tracker.
+    SttRecording(LocalContext.current, "Orthopaedic Genius")
 
     when (view) {
         "exam" -> examId?.let { ExamView(it) { view = "home" } } ?: goHome()
@@ -357,9 +359,6 @@ private fun ExamView(examId: String, onExit: () -> Unit) {
     var celebration by remember { mutableStateOf<Pair<String, String>?>(null) }
     val left = (OrthoExam.EXAM_SECONDS - ((now - exam.startedAt) / 1000).toInt()).coerceAtLeast(0)
 
-    // Record the exam as an Ortho / MCQ / Exam activity in Simple Time Tracker while it runs.
-    SttRecording(ctx, "Exam #${exam.number}", active = !exam.completed)
-
     LaunchedEffect(exam.completed) {
         while (!exam.completed) {
             now = System.currentTimeMillis()
@@ -514,14 +513,18 @@ private fun ResultView(e: OExam, onExit: () -> Unit) {
     }
 }
 
-/** Runs the matching Simple Time Tracker activity while [active], stopping it when the exam ends. */
+/**
+ * Runs the "Study with Orthopaedic Genius App" activity in Simple Time Tracker while Orthopaedic Genius
+ * is open (falls back to one named with Ortho / MCQ / Exam), and stops it on leaving.
+ */
 @Composable
-private fun SttRecording(ctx: Context, comment: String, active: Boolean) {
+private fun SttRecording(ctx: Context, comment: String, active: Boolean = true) {
     val act = remember {
         val acts = SimpleTimeTracker.cache.value.activities
-        listOf("ortho", "mcq", "exam", "question").firstNotNullOfOrNull { w -> acts.firstOrNull { it.name.contains(w, ignoreCase = true) } }
+        listOf("orthopaedic genius", "orthopedic genius", "genius", "ortho", "mcq", "exam", "question").firstNotNullOfOrNull { w -> acts.firstOrNull { it.name.contains(w, ignoreCase = true) } }
     }
     var startedByUs by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (act == null) toast(ctx, "Tip: add a \"Study with Orthopaedic Genius App\" activity in Simple Time Tracker to record study time") }
     LaunchedEffect(active) {
         if (active && act != null && !SimpleTimeTracker.isRunning(act.id)) { SimpleTimeTracker.start(act, comment); startedByUs = true }
         if (!active && startedByUs && act != null && SimpleTimeTracker.isRunning(act.id)) { SimpleTimeTracker.toggle(act); startedByUs = false }
