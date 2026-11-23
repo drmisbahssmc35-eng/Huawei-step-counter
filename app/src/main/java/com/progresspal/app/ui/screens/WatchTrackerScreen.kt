@@ -320,45 +320,71 @@ private fun PlayerDialog(v: WVideo, onClose: () -> Unit) {
                 IconButton(onClick = onClose) { Icon(Icons.Filled.Stop, "Stop", tint = Pal.c.destructive) }
             }
             if (!fallback) {
-                val html = """
-                    <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                    <body style="margin:0;background:#000"><div id="p"></div>
-                    <script src="https://www.youtube.com/iframe_api"></script>
-                    <script>
-                    var player;
-                    function onYouTubeIframeAPIReady(){
-                      player=new YT.Player('p',{width:'100%',height:'100%',videoId:'${v.ytId}',
-                        playerVars:{start:${v.watchedS.coerceAtMost((v.durationS - 3).coerceAtLeast(0))},autoplay:1,playsinline:1,rel:0,modestbranding:1},
-                        events:{onStateChange:function(e){
-                            if(e.data==0){Android.ended();}
-                            if(e.data==2&&player.getCurrentTime){Android.progress(Math.floor(player.getCurrentTime()));}
-                          },
-                          onError:function(e){Android.error(e.data);}}});
-                    }
-                    setInterval(function(){ if(player&&player.getPlayerState&&player.getPlayerState()==1){Android.progress(Math.floor(player.getCurrentTime()));} },5000);
-                    </script></body></html>
-                """.trimIndent()
+                // The YouTube mobile page plays inside the app (embedded players are often blocked).
+                // Every 5 s the video element's position is read and saved.
                 var web by remember { mutableStateOf<WebView?>(null) }
-                DisposableEffect(Unit) { onDispose { web?.evaluateJavascript("if(player&&player.getCurrentTime){Android.progress(Math.floor(player.getCurrentTime()));}", null); web?.destroy() } }
-                AndroidView(
-                    factory = { c ->
-                        WebView(c).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.mediaPlaybackRequiresUserGesture = false
-                            webChromeClient = WebChromeClient()
-                            addJavascriptInterface(PlayerBridge(
-                                onProgress = { t -> WatchTracker.progress(v.id, t) },
-                                onEnded = { WatchTracker.complete(v.id); stopActivity(); com.progresspal.app.ui.components.Sounds.done(c); toast(c, "Video completed! 🎉") },
-                                onError = { fallback = true },
-                            ), "Android")
-                            loadDataWithBaseURL("https://progresspal.app/", html, "text/html", "utf-8", null)
-                            web = this
+                var fullView by remember { mutableStateOf<android.view.View?>(null) }
+                var fullCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+                var endedOnce by remember { mutableStateOf(false) }
+                val readJs = "(function(){var v=document.querySelector('video');if(!v)return '';" +
+                    "return Math.floor(v.currentTime)+','+(v.ended?1:0)+','+(v.paused?1:0);})()"
+                fun poll(w: WebView) {
+                    w.evaluateJavascript(readJs) { r ->
+                        val parts = r?.trim('"')?.split(',') ?: return@evaluateJavascript
+                        val t = parts.getOrNull(0)?.toIntOrNull() ?: return@evaluateJavascript
+                        if (t > 0) WatchTracker.progress(v.id, t)
+                        if (parts.getOrNull(1) == "1" && !endedOnce) {
+                            endedOnce = true
+                            WatchTracker.complete(v.id); stopActivity()
+                            com.progresspal.app.ui.components.Sounds.done(ctx); toast(ctx, "Video completed! 🎉")
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
-                )
-                TextButton(onClick = { fallback = true }) { Text("Video won't play here? Watch on YouTube with a timer", fontSize = 12.sp) }
+                    }
+                }
+                LaunchedEffect(web) {
+                    val w = web ?: return@LaunchedEffect
+                    while (true) { delay(5_000); poll(w) }
+                }
+                DisposableEffect(Unit) { onDispose { web?.let { poll(it) }; web?.destroy() } }
+                Box(Modifier.fillMaxWidth().height(460.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black)) {
+                    AndroidView(
+                        factory = { c ->
+                            WebView(c).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.mediaPlaybackRequiresUserGesture = false
+                                settings.loadWithOverviewMode = true
+                                settings.useWideViewPort = true
+                                android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                webViewClient = object : android.webkit.WebViewClient() {
+                                    // Keep YouTube pages inside the app; send other links to the browser.
+                                    override fun shouldOverrideUrlLoading(view: WebView, req: android.webkit.WebResourceRequest): Boolean {
+                                        val host = req.url.host ?: return false
+                                        if (host.endsWith("youtube.com") || host.endsWith("google.com") || host.endsWith("youtu.be")) return false
+                                        runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, req.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                                        return true
+                                    }
+                                }
+                                webChromeClient = object : WebChromeClient() {
+                                    override fun onShowCustomView(view: android.view.View, callback: CustomViewCallback) { fullView = view; fullCallback = callback }
+                                    override fun onHideCustomView() { fullView = null; fullCallback = null }
+                                }
+                                loadUrl("https://m.youtube.com/watch?v=${v.ytId}" + if (v.watchedS > 5) "&t=${v.watchedS}s" else "")
+                                web = this
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // YouTube's full-screen button shows the video here, over everything.
+                fullView?.let { fv ->
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { fullCallback?.onCustomViewHidden(); fullView = null },
+                        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+                    ) {
+                        AndroidView(factory = { (fv.parent as? android.view.ViewGroup)?.removeView(fv); fv }, modifier = Modifier.fillMaxSize().background(Color.Black))
+                    }
+                }
+                TextButton(onClick = { fallback = true }) { Text("Video won't play here? Use the YouTube app with a timer", fontSize = 12.sp) }
             } else {
                 // Age-restricted or blocked embeds: open YouTube, time it, log it.
                 Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Color.Black).padding(12.dp),
