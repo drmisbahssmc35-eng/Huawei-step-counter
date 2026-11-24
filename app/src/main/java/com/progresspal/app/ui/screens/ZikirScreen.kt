@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,32 +78,71 @@ private val ZGreen = Color(0xFF10B981)
 private val ZGold = Color(0xFFF5C542)
 private val ZDeep = Color(0xFF064E3B)
 
-/** Zikir tracker: tasbih counter per zikir with hourly…yearly bar charts. */
+/** Colour themes for the tasbih: background top, background bottom, accent. */
+private val ZTHEMES = listOf(
+    Triple(Color(0xFF0B5D45), Color(0xFF053B2C), Color(0xFFF5C542)),
+    Triple(Color(0xFF14325C), Color(0xFF0A1A33), Color(0xFF7DD3FC)),
+    Triple(Color(0xFF3B1F5C), Color(0xFF1E0F33), Color(0xFFE9A8FF)),
+    Triple(Color(0xFF5C1F2A), Color(0xFF330F16), Color(0xFFFFC2A8)),
+    Triple(Color(0xFF1C1C1C), Color(0xFF000000), Color(0xFFD4AF37)),
+)
+private val ZTHEME_NAMES = listOf("Green", "Night", "Purple", "Maroon", "Black & Gold")
+
+/** Zikir tracker: tasbih counter, groups, history and hourly…yearly progress. */
 @Composable
 fun ZikirScreen(onBack: () -> Unit) {
     val d by Zikir.data.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var full by rememberSaveable { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     ZikirStt()
+    DisposableEffect(Unit) { onDispose { Zikir.setPaused(false); Zikir.endSession() } }
+
+    val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) runCatching { ctx.contentResolver.openOutputStream(uri)?.use { it.write(Zikir.exportJson().toByteArray()) } }
+            .onSuccess { com.progresspal.app.ui.components.toast(ctx, "Zikir backup saved") }
+    }
+    val import = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val ok = runCatching { ctx.contentResolver.openInputStream(uri)?.use { Zikir.importJson(it.readBytes().decodeToString()) } ?: false }.getOrDefault(false)
+            com.progresspal.app.ui.components.toast(ctx, if (ok) "Zikir data restored" else "That file is not a Zikir backup")
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(Pal.c.background).safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Pal.c.foreground) }
-            Column(Modifier.weight(1f)) {
-                Text("Zikir Tracker", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Pal.c.foreground)
-                Text("Today ${"%,d".format(Zikir.todayFor(d, null))} · Lifetime ${"%,d".format(d.hourly.values.sum())}", fontSize = 12.sp, color = Pal.c.mutedForeground)
+        if (!(full && tab == 0)) {
+            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Pal.c.foreground) }
+                Column(Modifier.weight(1f)) {
+                    Text("Zikir Tracker", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Pal.c.foreground)
+                    Text("Today ${"%,d".format(Zikir.todayFor(d, null))} · Lifetime ${"%,d".format(d.hourly.values.sum())}", fontSize = 12.sp, color = Pal.c.mutedForeground)
+                }
+                Box {
+                    TextButton(onClick = { menu = true }) { Text("⋮", fontSize = 22.sp, color = Pal.c.foreground) }
+                    androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Back up to a file") }, onClick = { menu = false; export.launch("zikir-backup-${LocalDate.now()}.json") })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Restore from a backup") }, onClick = { menu = false; import.launch(arrayOf("application/json", "*/*")) })
+                    }
+                }
             }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Tasbih", "Progress").forEachIndexed { i, l ->
-                Text(
-                    l, Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (tab == i) ZGreen else Pal.c.muted)
-                        .clickable { tab = i }.padding(vertical = 8.dp),
-                    color = if (tab == i) Color.White else Pal.c.foreground, textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold,
-                )
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Tasbih", "Groups", "History", "Progress").forEachIndexed { i, l ->
+                    Text(
+                        l, Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (tab == i) ZGreen else Pal.c.muted)
+                            .clickable { tab = i }.padding(vertical = 8.dp),
+                        color = if (tab == i) Color.White else Pal.c.foreground, textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    )
+                }
             }
+            Spacer(Modifier.height(8.dp))
         }
-        Spacer(Modifier.height(8.dp))
-        if (tab == 0) Counter(d) else ZikirProgress(d)
+        when (tab) {
+            0 -> Counter(d, full) { full = it }
+            1 -> GroupsTab(d) { tab = 0 }
+            2 -> HistoryTab(d)
+            else -> ZikirProgress(d)
+        }
     }
 }
 
@@ -130,98 +170,311 @@ private fun ZikirStt() {
 
 // ───────────────────────── Counter ─────────────────────────
 
+private fun clickTone() = runCatching { tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 40) }
+private val tone by lazy { android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 60) }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Counter(d: ZikirData) {
+private fun Counter(d: ZikirData, full: Boolean, setFull: (Boolean) -> Unit) {
     val haptic = LocalHapticFeedback.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val st = d.settings
     val z = d.zikrs.firstOrNull { it.id == d.selectedId } ?: d.zikrs.firstOrNull()
     var editing by remember { mutableStateOf<Zikr?>(null) }
     var adding by remember { mutableStateOf(false) }
+    var auto by remember { mutableStateOf(false) }
+    var paused by remember { mutableStateOf(Zikir.paused) }
+    var black by remember { mutableIntStateOf(0) } // 0 off, 1 with counter, 2 blank
+    var recording by remember { mutableStateOf(false) }
+    val recTaps = remember { mutableListOf<Long>() }
+    var dialog by remember { mutableStateOf<String?>(null) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Zikir chips: tap to choose, long-press to edit
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            d.zikrs.sortedBy { it.order }.forEach { x ->
-                val sel = x.id == z?.id
-                Text(
-                    x.name, Modifier.clip(RoundedCornerShape(50)).background(if (sel) ZGreen else Pal.c.muted)
-                        .combinedClickable(onClick = { Zikir.select(x.id) }, onLongClick = { editing = x })
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    color = if (sel) Color.White else Pal.c.foreground, fontSize = 13.sp, maxLines = 1,
-                )
-            }
-            Text("＋ Add", Modifier.clip(RoundedCornerShape(50)).border(1.dp, ZGreen, RoundedCornerShape(50)).clickable { adding = true }.padding(horizontal = 12.dp, vertical = 7.dp), color = ZGreen, fontSize = 13.sp)
-        }
+    if (z == null) { Text("Add a zikir to start counting.", Modifier.padding(16.dp), color = Pal.c.mutedForeground); if (adding) ZikrDialog(null) { adding = false }; return }
+    val (bgTop, bgBottom, accent) = ZTHEMES[st.theme.coerceIn(0, ZTHEMES.lastIndex)]
+    val round = d.round[z.id] ?: 0
+    val rounds = d.rounds[z.id] ?: 0
+    val today = Zikir.todayFor(d, z.id)
+    val todayAll = Zikir.todayFor(d, null)
+    val group = d.groups.firstOrNull { it.id == d.activeGroupId }
+    val groupItem = group?.items?.getOrNull(d.groupPos)
+    val target = groupItem?.count ?: z.target
+    val shown = if (group != null) d.groupCount else round
+    val frac = if (target > 0) shown / target.toFloat() else 0f
 
-        if (z == null) { Text("Add a zikir to start counting.", color = Pal.c.mutedForeground); return@Column }
-        val round = d.round[z.id] ?: 0
-        val rounds = d.rounds[z.id] ?: 0
-        val today = Zikir.todayFor(d, z.id)
-        val frac = if (z.target > 0) round / z.target.toFloat() else 0f
-
-        // The tasbih: tap anywhere on the circle
-        Box(
-            Modifier.fillMaxWidth(0.86f).aspectRatio(1f).align(Alignment.CenterHorizontally).clip(CircleShape)
-                .background(Brush.radialGradient(listOf(ZGreen.copy(alpha = .35f), ZDeep.copy(alpha = .55f))))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = androidx.compose.material3.ripple()) {
-                    val done = Zikir.tap(z.id)
-                    if (d.vibrate) haptic.performHapticFeedback(if (done) HapticFeedbackType.LongPress else HapticFeedbackType.TextHandleMove)
-                    if (done) Sounds.done()
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            val track = Pal.c.muted
-            Canvas(Modifier.fillMaxSize().padding(10.dp)) {
-                val st = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round)
-                drawArc(track, 0f, 360f, false, style = st)
-                drawArc(ZGold, -90f, 360f * frac, false, style = st)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (z.arabic.isNotBlank()) Text(z.arabic, fontSize = 22.sp, color = Color.White, textAlign = TextAlign.Center)
-                Text(z.name, fontSize = 14.sp, color = Color.White.copy(alpha = .85f), textAlign = TextAlign.Center, maxLines = 2, modifier = Modifier.padding(horizontal = 28.dp))
-                Text("$round", fontSize = 72.sp, fontWeight = FontWeight.Black, color = Color.White)
-                Text("of ${z.target} · round ${rounds + 1}", fontSize = 13.sp, color = Color.White.copy(alpha = .8f))
-                Text("Tap to count", fontSize = 11.sp, color = Color.White.copy(alpha = .55f), modifier = Modifier.padding(top = 6.dp))
-            }
+    val count: () -> Unit = {
+        if (!paused) {
+            val done = Zikir.add(z.id, st.step)
+            if (recording) recTaps += System.currentTimeMillis()
+            if (d.vibrate) haptic.performHapticFeedback(if (done) HapticFeedbackType.LongPress else HapticFeedbackType.TextHandleMove)
+            if (done) Sounds.done() else if (st.sound) clickTone()
+            if (Zikir.groupJustFinished) { Zikir.groupJustFinished = false; auto = false; com.progresspal.app.ui.components.toast(ctx, "✅ ${group?.name ?: "Group"} complete — MashaAllah!") }
         }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton(onClick = { Zikir.undo(z.id) }) { Text("↶ Undo") }
-            TextButton(onClick = { Zikir.resetRound(z.id) }) { Text("⟲ Reset round") }
-            TextButton(onClick = { editing = z }) { Text("✎ Edit") }
-        }
-
-        // Today for this zikir
-        ZCard {
-            Row {
-                Text("Today · ${z.name}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = Pal.c.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (z.dailyGoal > 0) "$today / ${z.dailyGoal}" else "$today", fontWeight = FontWeight.Bold, color = Pal.c.foreground)
-            }
-            if (z.dailyGoal > 0) { Spacer(Modifier.height(6.dp)); BrightBar(today / z.dailyGoal.toFloat(), listOf(ZGreen, ZGold), 12) }
-            Text("$rounds rounds completed in total", fontSize = 11.sp, color = Pal.c.mutedForeground, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        // All zikir today
-        ZCard {
-            Text("Today's Zikir", fontWeight = FontWeight.Bold, color = Pal.c.foreground)
-            d.zikrs.sortedBy { it.order }.forEach { x ->
-                val t = Zikir.todayFor(d, x.id)
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { Zikir.select(x.id) }, verticalAlignment = Alignment.CenterVertically) {
-                    Text(x.name, Modifier.weight(1f), fontSize = 13.sp, color = Pal.c.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(if (x.dailyGoal > 0) "$t / ${x.dailyGoal}" else "$t", fontSize = 12.sp, color = if (x.dailyGoal in 1..t) ZGreen else Pal.c.mutedForeground)
-                }
-                if (x.dailyGoal > 0) BrightBar(t / x.dailyGoal.toFloat(), listOf(ZGreen, ZGold), 6)
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Vibrate on each bead", Modifier.weight(1f), color = Pal.c.foreground, fontSize = 13.sp)
-            Switch(checked = d.vibrate, onCheckedChange = { Zikir.setVibrate(it) })
-        }
-        Spacer(Modifier.height(24.dp))
+    }
+    // Autoplay: one bead every autoMs while on.
+    androidx.compose.runtime.LaunchedEffect(auto, paused, z.id) {
+        while (auto && !paused) { kotlinx.coroutines.delay(st.autoMs.coerceAtLeast(150)); count() }
     }
 
+    // Black screen: the whole screen counts; long-press to leave.
+    if (black > 0) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { black = 0 }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black)
+                    .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = count, onLongClick = { black = 0 }),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (black == 1) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$shown", fontSize = (64 * st.fontScale).sp, color = Color(0xFF3A3A3A), fontWeight = FontWeight.Bold)
+                    Text("long-press to exit", fontSize = 11.sp, color = Color(0xFF262626))
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(bgTop, bgBottom)))) {
+        // Tools
+        if (st.tools) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                ZTool(if (paused) "▶" else "⏸", if (paused) "Resume" else "Pause", paused, accent) { paused = !paused; Zikir.setPaused(paused); if (paused) auto = false }
+                ZTool("−${st.step}", "Decrease", false, accent) { Zikir.add(z.id, -st.step) }
+                ZTool("⟲", "Reset", false, accent) { dialog = "reset" }
+                ZTool("⏯", "Autoplay", auto, accent) { auto = !auto; if (auto && paused) { paused = false; Zikir.setPaused(false) } }
+                ZTool("●", if (recording) "Stop rec" else "Rec speed", recording, accent) {
+                    if (!recording) { recTaps.clear(); recording = true; com.progresspal.app.ui.components.toast(ctx, "Recording your speed — count at your normal pace, then tap ● again") }
+                    else {
+                        recording = false
+                        val gaps = recTaps.zipWithNext { a, b -> b - a }.filter { it in 100..10_000 }
+                        if (gaps.size >= 3) { val avg = gaps.average().toLong(); Zikir.settings { it.copy(avgMs = avg, autoMs = avg) }; com.progresspal.app.ui.components.toast(ctx, "Average speed %.1f s per bead — autoplay uses it".format(avg / 1000f)) }
+                        else com.progresspal.app.ui.components.toast(ctx, "Count a few more beads while recording")
+                    }
+                }
+                ZTool("±", "Step ${st.step}", st.step != 1, accent) { dialog = "step" }
+                ZTool("◎", "Target", false, accent) { editing = z }
+                ZTool("⛶", if (full) "Exit full" else "Full", full, accent) { setFull(!full) }
+                ZTool("◐", "Black+no.", false, accent) { black = 1 }
+                ZTool("●", "Black", false, accent) { black = 2 }
+                ZTool("📳", "Vibrate", d.vibrate, accent) { Zikir.setVibrate(!d.vibrate) }
+                ZTool("🔊", "Sound", st.sound, accent) { Zikir.settings { it.copy(sound = !it.sound) } }
+                ZTool("❀", "Beads", st.beads, accent) { Zikir.settings { it.copy(beads = !it.beads) } }
+                ZTool("Tт", "Font", false, accent) { Zikir.settings { it.copy(fontScale = if (it.fontScale >= 1.6f) 0.8f else it.fontScale + 0.2f) } }
+                ZTool("🎨", ZTHEME_NAMES[st.theme.coerceIn(0, ZTHEMES.lastIndex)], false, accent) { Zikir.settings { it.copy(theme = (it.theme + 1) % ZTHEMES.size) } }
+                ZTool("⏱", "${st.autoMs / 1000f}s", false, accent) { dialog = "speed" }
+                ZTool("ᐱ", "Hide tools", false, accent) { Zikir.settings { it.copy(tools = false) } }
+            }
+        } else Text("ᐯ tools", Modifier.align(Alignment.CenterHorizontally).clickable { Zikir.settings { it.copy(tools = true) } }.padding(6.dp), color = Color.White.copy(alpha = .6f), fontSize = 12.sp)
+
+        // Zikir chips: tap to choose, long-press to edit
+        if (!full) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            d.zikrs.sortedBy { it.order }.forEach { x ->
+                val sel = x.id == z.id
+                Text(
+                    x.name, Modifier.clip(RoundedCornerShape(50)).background(if (sel) accent else Color.White.copy(alpha = .12f))
+                        .combinedClickable(onClick = { if (group != null) Zikir.stopGroup(); Zikir.select(x.id) }, onLongClick = { editing = x })
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    color = if (sel) Color.Black else Color.White, fontSize = 13.sp, maxLines = 1,
+                )
+            }
+            Text("＋ Add", Modifier.clip(RoundedCornerShape(50)).border(1.dp, accent, RoundedCornerShape(50)).clickable { adding = true }.padding(horizontal = 12.dp, vertical = 7.dp), color = accent, fontSize = 13.sp)
+        }
+        if (group != null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("▶ ${group.name} · ${d.groupPos + 1}/${group.items.size}", Modifier.weight(1f), color = accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("Stop group", Modifier.clickable { Zikir.stopGroup() }.padding(4.dp), color = Color.White.copy(alpha = .7f), fontSize = 12.sp)
+        }
+
+        // Touch anywhere below to count
+        Box(
+            Modifier.fillMaxWidth().weight(1f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = count),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                Spacer(Modifier.weight(.6f))
+                if (z.arabic.isNotBlank()) Text(z.arabic, fontSize = (28 * st.fontScale).sp, color = Color.White, textAlign = TextAlign.Center)
+                Text(z.name, fontSize = (15 * st.fontScale).sp, color = Color.White.copy(alpha = .8f), textAlign = TextAlign.Center, maxLines = 2)
+                Spacer(Modifier.weight(.4f))
+                if (st.beads) Beads(shown, accent, Modifier.fillMaxWidth().height(110.dp))
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size((170 * st.fontScale.coerceAtMost(1.2f)).dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val s = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round)
+                        drawArc(Color.White.copy(alpha = .12f), 0f, 360f, false, style = s)
+                        drawArc(accent, -90f, 360f * frac.coerceIn(0f, 1f), false, style = s)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("$shown", fontSize = (60 * st.fontScale).sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1)
+                        Text("of $target" + if (group == null) " · round ${rounds + 1}" else "", fontSize = 12.sp, color = Color.White.copy(alpha = .75f))
+                    }
+                }
+                val ms = Zikir.sessionMs().also { now }
+                Text("%02d:%02d:%02d".format(ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60) + if (paused) "  ⏸ paused" else if (auto) "  ⏯ autoplay" else "",
+                    fontSize = 14.sp, color = Color.White.copy(alpha = .75f), modifier = Modifier.padding(top = 6.dp))
+                Text("📅 Today: $today ${z.name}" + (if (z.dailyGoal > 0) " / ${z.dailyGoal}" else "") + " · all $todayAll", fontSize = 12.sp, color = Color.White.copy(alpha = .6f), textAlign = TextAlign.Center)
+                Text(if (paused) "Paused — tap ▶ to resume" else "Touch anywhere to count", fontSize = 11.sp, color = Color.White.copy(alpha = .4f), modifier = Modifier.padding(vertical = 8.dp))
+            }
+        }
+    }
+
+    when (dialog) {
+        "reset" -> AlertDialog(
+            onDismissRequest = { dialog = null }, containerColor = Pal.c.card,
+            title = { Text("Reset the counter?", color = Pal.c.foreground) },
+            text = { Text("The current round starts again from 0. Counts already made stay in your history and charts.", color = Pal.c.foreground) },
+            confirmButton = { TextButton(onClick = { Zikir.resetRound(z.id); dialog = null }) { Text("Reset") } },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
+        )
+        "step", "speed" -> {
+            val isStep = dialog == "step"
+            var v by remember { mutableStateOf(if (isStep) st.step.toString() else "%.1f".format(st.autoMs / 1000f)) }
+            AlertDialog(
+                onDismissRequest = { dialog = null }, containerColor = Pal.c.card,
+                title = { Text(if (isStep) "Custom step" else "Autoplay speed", color = Pal.c.foreground) },
+                text = {
+                    Column {
+                        Text(if (isStep) "How much each tap adds (− takes the same off)." else "Seconds between beads for autoplay" + if (st.avgMs > 0) " (your recorded speed: %.1f s)".format(st.avgMs / 1000f) else "", color = Pal.c.mutedForeground, fontSize = 13.sp)
+                        OutlinedTextField(v, { v = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (isStep) v.toIntOrNull()?.takeIf { it > 0 }?.let { n -> Zikir.settings { it.copy(step = n.coerceAtMost(1000)) } }
+                        else v.replace(',', '.').toFloatOrNull()?.takeIf { it > 0 }?.let { s -> Zikir.settings { it.copy(autoMs = (s * 1000).toLong().coerceIn(150, 60_000)) } }
+                        dialog = null
+                    }) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
+            )
+        }
+    }
     if (adding) ZikrDialog(null, onDone = { adding = false })
     editing?.let { e -> ZikrDialog(e, onDone = { editing = null }) }
+}
+
+@Composable
+private fun ZTool(icon: String, label: String, on: Boolean, accent: Color, onClick: () -> Unit) {
+    Column(
+        Modifier.width(58.dp).clip(RoundedCornerShape(10.dp)).background(if (on) accent.copy(alpha = .28f) else Color.Transparent).clickable(onClick = onClick).padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(icon, fontSize = 18.sp, color = if (on) accent else Color.White, maxLines = 1)
+        Text(label, fontSize = 9.sp, color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** A string of tasbih beads along an arch; one bead slides over with each count. */
+@Composable
+private fun Beads(count: Int, accent: Color, modifier: Modifier) {
+    val anim = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(count) { anim.snapTo(0f); anim.animateTo(1f, androidx.compose.animation.core.tween(220)) }
+    Canvas(modifier) {
+        val n = 13
+        val cx = size.width / 2; val r = size.width * 0.42f; val cy = size.height + r * 0.55f
+        val bead = size.height * 0.11f
+        for (i in -1 until n) {
+            val t = (i + anim.value) / (n - 1)                     // 0..1 along the arch
+            val a = Math.toRadians((200 + 140 * t).toDouble())     // left → right over the top
+            val x = cx + r * kotlin.math.cos(a).toFloat()
+            val y = cy + r * kotlin.math.sin(a).toFloat() * 0.75f
+            val fresh = t > 0.5f
+            drawCircle(if (fresh) accent else Color.White.copy(alpha = .55f), radius = bead, center = Offset(x, y), style = Stroke(width = 3.dp.toPx()))
+        }
+    }
+}
+
+// ───────────────────────── Groups ─────────────────────────
+
+@Composable
+private fun GroupsTab(d: ZikirData, onStarted: () -> Unit) {
+    var editing by remember { mutableStateOf<com.progresspal.app.data.ZGroup?>(null) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("A group recites several zikir one after another — the counter moves to the next when each count is reached.", fontSize = 12.sp, color = Pal.c.mutedForeground)
+        d.groups.forEach { g ->
+            ZCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(g.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Pal.c.foreground)
+                    TextButton(onClick = { editing = g }) { Text("Edit") }
+                    TextButton(onClick = { Zikir.startGroup(g.id); onStarted() }) { Text("▶ Start") }
+                }
+                g.items.forEachIndexed { i, it ->
+                    val name = d.zikrs.firstOrNull { z -> z.id == it.zikrId }?.name ?: "(deleted zikir)"
+                    Text("${i + 1}. $name × ${it.count}", fontSize = 13.sp, color = Pal.c.foreground)
+                }
+                val done = d.sessions.count { it.groupId == g.id }
+                if (done > 0) Text("Recited in $done sittings", fontSize = 11.sp, color = Pal.c.mutedForeground)
+            }
+        }
+        TextButton(onClick = { editing = com.progresspal.app.data.ZGroup(name = "") }) { Text("＋ New group") }
+        Spacer(Modifier.height(24.dp))
+    }
+    editing?.let { g -> GroupDialog(d, g) { editing = null } }
+}
+
+@Composable
+private fun GroupDialog(d: ZikirData, g: com.progresspal.app.data.ZGroup, onDone: () -> Unit) {
+    var name by remember { mutableStateOf(g.name) }
+    val items = remember { androidx.compose.runtime.mutableStateListOf(*g.items.toTypedArray()) }
+    var picking by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDone, containerColor = Pal.c.card,
+        title = { Text(if (g.name.isBlank()) "New group" else "Edit group", color = Pal.c.foreground) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                items.forEachIndexed { i, it ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.zikrs.firstOrNull { z -> z.id == it.zikrId }?.name ?: "?", Modifier.weight(1f), color = Pal.c.foreground, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        OutlinedTextField(it.count.toString(), { v -> v.toIntOrNull()?.let { n -> items[i] = it.copy(count = n.coerceAtLeast(1)) } }, singleLine = true, modifier = Modifier.width(80.dp))
+                        TextButton(onClick = { items.removeAt(i) }) { Text("✕", color = Pal.c.destructive) }
+                    }
+                }
+                if (picking) d.zikrs.sortedBy { it.order }.forEach { z ->
+                    Text("＋ ${z.name}", Modifier.fillMaxWidth().clickable { items.add(com.progresspal.app.data.ZGroupItem(z.id, z.target)); picking = false }.padding(vertical = 6.dp), color = ZGreen, fontSize = 13.sp)
+                } else TextButton(onClick = { picking = true }) { Text("＋ Add zikir") }
+                if (g.name.isNotBlank()) TextButton(onClick = { Zikir.deleteGroup(g.id); onDone() }) { Text("Delete group", color = Pal.c.destructive) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { if (name.isNotBlank() && items.isNotEmpty()) Zikir.upsertGroup(g.copy(name = name.trim(), items = items.toList())); onDone() }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
+    )
+}
+
+// ───────────────────────── History ─────────────────────────
+
+@Composable
+private fun HistoryTab(d: ZikirData) {
+    var byGroup by rememberSaveable { mutableStateOf(false) }
+    val fmt = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
+    val list = d.sessions.filter { if (byGroup) it.groupId != null else true }.sortedByDescending { it.startedAt }
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(false to "Phrases", true to "Groups").forEach { (g, l) ->
+                Text(l, Modifier.clip(RoundedCornerShape(50)).background(if (byGroup == g) ZGreen else Pal.c.muted).clickable { byGroup = g }.padding(horizontal = 14.dp, vertical = 6.dp),
+                    color = if (byGroup == g) Color.White else Pal.c.foreground, fontSize = 13.sp)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (list.isEmpty()) Text("No sittings yet — each sitting is saved when you switch zikir, reset, or leave the counter.", color = Pal.c.mutedForeground, fontSize = 13.sp)
+        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(list.size) { i ->
+                val s = list[i]
+                val name = d.zikrs.firstOrNull { it.id == s.zikrId }?.name ?: "(deleted zikir)"
+                val gname = s.groupId?.let { id -> d.groups.firstOrNull { it.id == id }?.name }
+                val start = java.time.Instant.ofEpochMilli(s.startedAt).atZone(java.time.ZoneId.systemDefault())
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.card).border(1.dp, Pal.c.border, RoundedCornerShape(12.dp)).padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(name, fontWeight = FontWeight.SemiBold, color = Pal.c.foreground, fontSize = 14.sp)
+                        Text(start.format(fmt) + (gname?.let { " · $it" } ?: ""), fontSize = 11.sp, color = Pal.c.mutedForeground)
+                        val secs = s.activeMs / 1000
+                        Text("⏱ %d:%02d".format(secs / 60, secs % 60) + if (s.count > 0 && secs > 0) " · %.1f s/bead".format(secs.toFloat() / s.count) else "", fontSize = 11.sp, color = Pal.c.mutedForeground)
+                    }
+                    Text("%,d".format(s.count), fontWeight = FontWeight.Black, fontSize = 20.sp, color = ZGreen)
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
 }
 
 @Composable
