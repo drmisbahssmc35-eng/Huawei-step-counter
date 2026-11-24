@@ -59,6 +59,7 @@ import com.progresspal.app.data.SimpleTimeTracker
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.unit.dp
 
 /** Reading Tracker: read PDF books, stamp the date & time, and track pages read. */
