@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.progresspal.app.data.SimpleTimeTracker
 import androidx.compose.material3.Button
@@ -77,6 +78,7 @@ fun HomeScreen(
     onOpenPortfolio: () -> Unit,
     onOpenWatch: () -> Unit,
     onOpenOrtho: () -> Unit,
+    onOpenReading: () -> Unit,
 ) {
     var selected by rememberSaveable { mutableStateOf(today()) }
     var showAdd by remember { mutableStateOf(false) }
@@ -136,6 +138,7 @@ fun HomeScreen(
             LinkCard(Icons.Filled.Timeline, Brand.blue, "Project Portfolio", "All ongoing projects on one timeline", onOpenPortfolio)
             LinkCard(Icons.Filled.OndemandVideo, Brand.coral, "Vinay Watch Tracker", "Dr. Vinay Singh's videos · watch time, streaks, ranks", onOpenWatch)
             LinkCard(Icons.Filled.Quiz, Brand.green, "Orthopaedic Genius", "AI ortho MCQ exams · daily goal, streaks, ranks", onOpenOrtho)
+            LinkCard(Icons.AutoMirrored.Filled.MenuBook, Brand.blue, "Reading Tracker", "Read PDF books · stamp date & time · pages per day", onOpenReading)
             LinkCard(Icons.AutoMirrored.Filled.TrendingUp, Brand.purple, "Analytics", "View your productivity insights", onOpenAnalytics)
             if (doneCount > 0) {
                 Spacer(Modifier.height(12.dp))

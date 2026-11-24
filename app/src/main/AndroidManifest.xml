@@ -41,6 +41,13 @@
                 <data android:scheme="progresspal" android:host="auth" />
                 <data android:scheme="progresspal" android:host="ortho-auth" />
             </intent-filter>
+            <!-- "Open with / Share" a PDF adds it to the Reading Tracker library -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <receiver
@@ -131,5 +138,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps home-screen widgets updated live with the Simple Time Tracker app" />
         </service>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.readingfiles"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/reading_file_paths" />
+        </provider>
     </application>
 </manifest>

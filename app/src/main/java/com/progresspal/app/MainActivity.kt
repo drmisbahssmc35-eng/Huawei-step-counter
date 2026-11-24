@@ -71,7 +71,8 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.WatchTracker.init(applicationContext)
         com.progresspal.app.data.OrthoExam.init(applicationContext)
         com.progresspal.app.data.OrthoCloud.init(applicationContext)
-        handleAuth(intent)
+        com.progresspal.app.reading.ReadingGraph.init(applicationContext)
+        if (savedInstanceState == null) handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         // Needed for the Azan's Stop notification (Android 13+).
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
@@ -95,6 +96,18 @@ class MainActivity : ComponentActivity() {
         if (com.progresspal.app.data.OrthoCloud.handleRedirect(intent?.data)) {
             toast(this, "Signed in to OrthoPrep — syncing your exams…")
             pendingRoute.value = "ortho"
+        }
+        // A PDF opened with / shared to Progress Pal goes to the Reading Tracker library.
+        val pdf: android.net.Uri? = when (intent?.action) {
+            android.content.Intent.ACTION_VIEW -> intent.data?.takeIf { intent.type == "application/pdf" || it.scheme == "content" || it.scheme == "file" }
+            android.content.Intent.ACTION_SEND -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            else @Suppress("DEPRECATION") intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+            else -> null
+        }
+        if (pdf != null) {
+            com.progresspal.app.reading.ReadingGraph.incoming.value = pdf
+            pendingRoute.value = "reading"
         }
     }
 
@@ -140,6 +153,7 @@ fun App() {
                 onOpenPortfolio = { nav.navigate("portfolio") },
                 onOpenWatch = { nav.navigate("watch") },
                 onOpenOrtho = { nav.navigate("ortho") },
+                onOpenReading = { nav.navigate("reading") },
             )
         }
         composable("project/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -154,6 +168,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
+        composable("reading") { com.progresspal.app.reading.ReadingTrackerScreen(back) }
         composable("ortho") { com.progresspal.app.ui.screens.OrthoGeniusScreen(back) }
         composable("watch") { com.progresspal.app.ui.screens.WatchTrackerScreen(back) }
         composable("portfolio") { com.progresspal.app.ui.screens.PortfolioScreen(data, back) { nav.navigate("ptasks/$it") } }
