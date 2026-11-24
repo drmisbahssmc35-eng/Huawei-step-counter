@@ -61,6 +61,9 @@ object PdfTools {
         withContext(Dispatchers.IO) {
             val tmp = File(file.parentFile, file.name + ".tmp")
             PDDocument.load(file).use { doc ->
+                // Many books are "protected" with an empty open-password that only restricts editing;
+                // PdfBox opens them fine but refuses to save until that protection is removed.
+                if (doc.isEncrypted) doc.isAllSecurityToBeRemoved = true
                 val page = doc.getPage(pageIndex)
                 val box = page.cropBox
                 val rot = ((page.rotation % 360) + 360) % 360
