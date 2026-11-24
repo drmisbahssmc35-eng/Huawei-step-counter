@@ -56,6 +56,10 @@ import com.progresspal.app.reading.ui.theme.ReadingTheme
 
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import com.progresspal.app.data.SimpleTimeTracker
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.unit.dp
 
 /** Reading Tracker: read PDF books, stamp the date & time, and track pages read. */
 @Composable
@@ -66,26 +70,72 @@ fun ReadingTrackerScreen(onBack: () -> Unit) {
     }
 }
 
+/** Which Simple Time Tracker activity each book is recorded as (book id → activity id). */
+private object BookActivities {
+    private fun prefs(ctx: android.content.Context) = ctx.getSharedPreferences("reading_stt", android.content.Context.MODE_PRIVATE)
+    fun get(ctx: android.content.Context, bookId: Long): Long? = prefs(ctx).getLong("book_$bookId", -1L).takeIf { it >= 0 }
+    fun set(ctx: android.content.Context, bookId: Long, activityId: Long) = prefs(ctx).edit().putLong("book_$bookId", activityId).apply()
+}
+
+/** Default activity for a book: hadith books (Riyad-us-Saliheen, Bukhari, Muslim…) → the Hadith activity; else a reading one. */
+private fun defaultActivity(title: String, acts: List<com.progresspal.app.data.SttActivity>): com.progresspal.app.data.SttActivity? {
+    val t = title.lowercase()
+    val hadithBook = listOf("riyad", "riyaz", "saliheen", "salihin", "hadith", "hadis", "bukhari", "muslim", "tirmidhi", "tirmizi", "abu dawud", "nasai", "ibn majah", "mishkat")
+        .any { it in t }
+    if (hadithBook) acts.firstOrNull { it.name.contains("hadith", true) || it.name.contains("hadis", true) }?.let { return it }
+    return listOf("reading tracker", "pdf book", "reading", "book", "pdf", "read")
+        .firstNotNullOfOrNull { w -> acts.firstOrNull { it.name.contains(w, ignoreCase = true) } }
+}
+
 /**
- * While a book is open in the reader, runs the Simple Time Tracker activity for reading (name with
- * "Reading", "Book", "PDF" or "Read"); stops it when the reader closes. A timer it didn't start is left alone.
+ * While a book is open in the reader, runs its Simple Time Tracker activity (chosen per book with the
+ * chip at the top; Riyad-us-Saliheen and other hadith books default to the Hadith activity) with the
+ * book title as comment, and stops it when the reader closes. A timer it didn't start is left alone.
  */
 @Composable
-private fun ReadingStt(bookTitle: String?) {
-    val act = remember {
-        val acts = SimpleTimeTracker.cache.value.activities
-        listOf("reading tracker", "pdf book", "reading", "book", "pdf", "read")
-            .firstNotNullOfOrNull { w -> acts.firstOrNull { it.name.contains(w, ignoreCase = true) } }
+private fun ReadingStt(bookId: Long, bookTitle: String?) {
+    if (bookTitle == null) return
+    val ctx = LocalContext.current
+    val acts = remember { SimpleTimeTracker.cache.value.activities }
+    var act by remember(bookId) {
+        mutableStateOf(BookActivities.get(ctx, bookId)?.let { id -> acts.firstOrNull { it.id == id } } ?: defaultActivity(bookTitle, acts))
     }
-    var startedByUs by remember { mutableStateOf(false) }
-    LaunchedEffect(bookTitle) {
-        if (bookTitle != null && act != null && !SimpleTimeTracker.isRunning(act.id)) {
-            SimpleTimeTracker.start(act, bookTitle); startedByUs = true
-        }
+    var startedId by remember { mutableStateOf<Long?>(null) }
+    var picking by remember { mutableStateOf(false) }
+    LaunchedEffect(act?.id) {
+        val a = act ?: return@LaunchedEffect
+        // Switching activity: stop the one this reader started.
+        startedId?.takeIf { it != a.id }?.let { old -> acts.firstOrNull { it.id == old }?.let { if (SimpleTimeTracker.isRunning(it.id)) SimpleTimeTracker.toggle(it) } }
+        startedId = null
+        if (!SimpleTimeTracker.isRunning(a.id)) { SimpleTimeTracker.start(a, bookTitle); startedId = a.id }
     }
     androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { if (startedByUs && act != null && SimpleTimeTracker.isRunning(act.id)) SimpleTimeTracker.toggle(act) }
+        onDispose {
+            startedId?.let { id -> acts.firstOrNull { it.id == id }?.let { if (SimpleTimeTracker.isRunning(it.id)) SimpleTimeTracker.toggle(it) } }
+        }
     }
+    androidx.compose.foundation.layout.Box(
+        androidx.compose.ui.Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.statusBars).padding(top = 66.dp),
+        contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+    ) {
+        androidx.compose.material3.Surface(
+            onClick = { picking = true },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .92f),
+        ) {
+            Text(
+                "⏱ " + (act?.name ?: "Record in STT: choose activity") + "  ▾",
+                androidx.compose.ui.Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1,
+            )
+        }
+    }
+    if (picking) com.progresspal.app.ui.screens.ActivityPicker(
+        acts, act?.id,
+        onPick = { a -> BookActivities.set(ctx, bookId, a.id); act = a; picking = false },
+        onDismiss = { picking = false },
+        title = "Record this book as",
+    )
 }
 
 private enum class Tab(val route: String, val label: String, val icon: ImageVector, val title: String) {
@@ -196,12 +246,14 @@ private fun App(incoming: Uri?, consumeIncoming: () -> Unit, onExit: () -> Unit)
                     factory = viewModelFactory { initializer { ReaderViewModel(app, id) } }
                 )
                 val readingBook by readerVm.book.collectAsStateWithLifecycle()
-                ReadingStt(readingBook?.title)
-                ReaderScreen(
-                    readerVm,
-                    onBack = { nav.popBackStack() },
-                    onMarkComplete = { readerVm.book.value?.let { vm.setStatus(it, BookStatus.COMPLETED) } },
-                )
+                androidx.compose.foundation.layout.Box {
+                    ReaderScreen(
+                        readerVm,
+                        onBack = { nav.popBackStack() },
+                        onMarkComplete = { readerVm.book.value?.let { vm.setStatus(it, BookStatus.COMPLETED) } },
+                    )
+                    ReadingStt(id, readingBook?.title)
+                }
             }
         }
     }
