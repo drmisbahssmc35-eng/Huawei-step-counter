@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
         com.progresspal.app.data.OrthoExam.init(applicationContext)
         com.progresspal.app.data.OrthoCloud.init(applicationContext)
         com.progresspal.app.reading.ReadingGraph.init(applicationContext)
+        com.progresspal.app.data.Zikir.init(applicationContext)
         if (savedInstanceState == null) handleAuth(intent)
         intent?.getStringExtra(EXTRA_OPEN)?.let { pendingRoute.value = it }
         // Needed for the Azan's Stop notification (Android 13+).
@@ -154,6 +155,7 @@ fun App() {
                 onOpenWatch = { nav.navigate("watch") },
                 onOpenOrtho = { nav.navigate("ortho") },
                 onOpenReading = { nav.navigate("reading") },
+                onOpenZikir = { nav.navigate("zikir") },
             )
         }
         composable("project/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -168,6 +170,7 @@ fun App() {
         composable("challenge") { ChallengeScreen(data, back) { nav.navigate("history") } }
         composable("history") { ChallengeHistoryScreen(data, back) }
         composable("backup") { BackupScreen(data, back) }
+        composable("zikir") { com.progresspal.app.ui.screens.ZikirScreen(back) }
         composable("reading") { com.progresspal.app.reading.ReadingTrackerScreen(back) }
         composable("ortho") { com.progresspal.app.ui.screens.OrthoGeniusScreen(back) }
         composable("watch") { com.progresspal.app.ui.screens.WatchTrackerScreen(back) }
