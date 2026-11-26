@@ -7,6 +7,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalDate
 import java.util.UUID
 
@@ -107,6 +110,70 @@ object WatchTracker {
         }
         return added
     }
+
+    /** True when this YouTube video is already in the library. */
+    fun has(ytId: String) = _data.value.videos.any { it.ytId == ytId }
+
+    // ───── YouTube look-up (no API key: oEmbed for the title, the watch / results pages for the rest) ─────
+
+    data class YtResult(val id: String, val title: String, val durationS: Int, val channel: String)
+
+    private fun httpGet(url: String): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        try {
+            c.connectTimeout = 15_000; c.readTimeout = 20_000
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+            c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+            c.setRequestProperty("Cookie", "CONSENT=YES+1")
+            if (c.responseCode !in 200..299) throw java.io.IOException("YouTube returned ${c.responseCode}")
+            return c.inputStream.bufferedReader().use { it.readText() }
+        } finally { c.disconnect() }
+    }
+
+    /** Title, length (seconds) and channel of a YouTube video. */
+    suspend fun lookup(ytId: String): YtResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val page = runCatching { httpGet("https://www.youtube.com/watch?v=$ytId&hl=en") }.getOrNull().orEmpty()
+        val length = Regex("""\"lengthSeconds\":\"(\d+)\"""").find(page)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val o = runCatching {
+            json.parseToJsonElement(httpGet("https://www.youtube.com/oembed?format=json&url=" + java.net.URLEncoder.encode("https://www.youtube.com/watch?v=$ytId", "UTF-8"))).jsonObject
+        }.getOrNull()
+        val title = o?.get("title")?.jsonPrimitive?.contentOrNull
+            ?: Regex("""<meta name=\"title\" content=\"([^\"]*)\"""").find(page)?.groupValues?.get(1)?.let { htmlDecode(it) }
+            ?: throw java.io.IOException("Video not found")
+        YtResult(ytId, title, length, o?.get("author_name")?.jsonPrimitive?.contentOrNull.orEmpty())
+    }
+
+    /** YouTube search by keywords (videos only). */
+    suspend fun search(query: String): List<YtResult> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val page = httpGet("https://www.youtube.com/results?hl=en&search_query=" + java.net.URLEncoder.encode(query, "UTF-8"))
+        val start = page.indexOf("ytInitialData = ").takeIf { it >= 0 }?.plus(16) ?: page.indexOf("ytInitialData\"] = ").takeIf { it >= 0 }?.plus(18)
+            ?: throw java.io.IOException("Couldn't read YouTube's results")
+        val end = page.indexOf(";</script>", start)
+        val root = json.parseToJsonElement(page.substring(start, end))
+        val out = mutableListOf<YtResult>()
+        fun text(e: kotlinx.serialization.json.JsonElement?): String {
+            val o = e as? kotlinx.serialization.json.JsonObject ?: return ""
+            o["simpleText"]?.jsonPrimitive?.contentOrNull?.let { return it }
+            return (o["runs"] as? kotlinx.serialization.json.JsonArray)?.joinToString("") { (it as? kotlinx.serialization.json.JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull.orEmpty() }.orEmpty()
+        }
+        fun walk(e: kotlinx.serialization.json.JsonElement) {
+            when (e) {
+                is kotlinx.serialization.json.JsonObject -> {
+                    val v = e["videoRenderer"] as? kotlinx.serialization.json.JsonObject
+                    if (v != null) {
+                        val id = v["videoId"]?.jsonPrimitive?.contentOrNull
+                        if (id != null && out.none { it.id == id }) out += YtResult(id, text(v["title"]), parseClock(text(v["lengthText"])), text(v["ownerText"]))
+                    } else e.values.forEach { walk(it) }
+                }
+                is kotlinx.serialization.json.JsonArray -> e.forEach { walk(it) }
+                else -> {}
+            }
+        }
+        walk(root)
+        out
+    }
+
+    private fun htmlDecode(s: String) = s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
 
     fun add(title: String, durationS: Int, url: String?) = update { d ->
         d.copy(videos = d.videos + WVideo(title = title, durationS = durationS, ytId = url?.let { youTubeId(it) }, order = (d.videos.maxOfOrNull { it.order } ?: -1) + 1))

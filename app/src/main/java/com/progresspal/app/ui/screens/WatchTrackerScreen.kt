@@ -76,6 +76,7 @@ import com.progresspal.app.data.nextMilestone
 import com.progresspal.app.ui.components.toast
 import com.progresspal.app.ui.theme.Pal
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -95,6 +96,7 @@ fun WatchTrackerScreen(onBack: () -> Unit) {
     var confirmComplete by remember { mutableStateOf<WVideo?>(null) }
     var confirmDelete by remember { mutableStateOf<WVideo?>(null) }
     var editTarget by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     val ctx = LocalContext.current
 
     val total = d.sessions.sumOf { it.seconds }
@@ -130,6 +132,9 @@ fun WatchTrackerScreen(onBack: () -> Unit) {
             "progress-asc" -> d.videos.sortedBy { it.watchedS.toFloat() / it.durationS.coerceAtLeast(1) }
             "progress-desc" -> d.videos.sortedByDescending { it.watchedS.toFloat() / it.durationS.coerceAtLeast(1) }
             else -> d.videos.sortedBy { it.order }
+        }.let { all ->
+            val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (words.isEmpty()) all else all.filter { v -> words.all { w -> v.title.lowercase().contains(w) } }
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
@@ -160,6 +165,13 @@ fun WatchTrackerScreen(onBack: () -> Unit) {
                     TextButton(onClick = { val n = WatchTracker.loadAll(); toast(ctx, if (n == 0) "All videos are already in your library!" else "Loaded $n videos from Dr. Vinay Singh's channel!") }) { Text("Load All") }
                     TextButton(onClick = { adding = true }) { Text("+ Add") }
                 }
+                OutlinedTextField(
+                    query, { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("🔍 Search your videos by keywords") },
+                    trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("✕") } },
+                )
+                if (query.isNotBlank()) Text("${sorted.size} of ${d.videos.size} videos match", fontSize = 12.sp, color = Pal.c.mutedForeground)
+                Spacer(Modifier.height(6.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("default" to "Default", "duration-asc" to "Duration ↑", "duration-desc" to "Duration ↓", "progress-asc" to "Progress ↑", "progress-desc" to "Progress ↓").forEach { (k, l) ->
                         Text(
@@ -420,30 +432,145 @@ private fun PlayerDialog(v: WVideo, onClose: () -> Unit) {
     }
 }
 
+/** Add videos: paste a YouTube link (title and length are filled in), search YouTube by keywords, or type one in. */
 @Composable
 private fun AddVideoDialog(onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var mode by remember { mutableStateOf(0) }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDone, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(Pal.c.background).safeDrawingPadding().padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Add Video", Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Pal.c.foreground)
+                TextButton(onClick = onDone) { Text("Done") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("🔗 Paste link", "🔍 Search YouTube", "✎ Manual").forEachIndexed { i, l ->
+                    Text(l, Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (mode == i) Primary else Pal.c.muted).clickable { mode = i }.padding(vertical = 8.dp),
+                        color = if (mode == i) Color.White else Pal.c.foreground, textAlign = TextAlign.Center, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            when (mode) {
+                0 -> PasteLink(scope, ctx)
+                1 -> SearchYouTube(scope, ctx)
+                else -> ManualAdd(ctx)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PasteLink(scope: kotlinx.coroutines.CoroutineScope, ctx: android.content.Context) {
+    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+    var url by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var mins by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val id = WatchTracker.youTubeId(url)
+    // Fill in title and length as soon as a valid link is there.
+    LaunchedEffect(id) {
+        error = null
+        if (id == null) return@LaunchedEffect
+        loading = true
+        runCatching { WatchTracker.lookup(id) }
+            .onSuccess { r -> title = r.title; mins = if (r.durationS > 0) "%d:%02d".format(r.durationS / 60, r.durationS % 60) else "" }
+            .onFailure { error = "Couldn't read this video's details (${it.message}). Type the title and length below." }
+        loading = false
+    }
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Copy the video's link in YouTube (Share → Copy link), then paste it here.", fontSize = 13.sp, color = Pal.c.mutedForeground)
+        OutlinedTextField(url, { url = it.trim() }, label = { Text("YouTube link") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { TextButton(onClick = { clip.getText()?.text?.let { url = it.trim() } }) { Text("Paste") } })
+        if (url.isNotBlank() && id == null) Text("That doesn't look like a YouTube video link.", color = Pal.c.destructive, fontSize = 12.sp)
+        if (loading) Text("Getting the video's title and length…", color = Pal.c.mutedForeground, fontSize = 12.sp)
+        error?.let { Text(it, color = Pal.c.destructive, fontSize = 12.sp) }
+        if (id != null) {
+            OutlinedTextField(title, { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(mins, { mins = it }, label = { Text("Length (mm:ss or minutes)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            val dur = if (':' in mins) WatchTracker.parseClock(mins) else ((mins.toDoubleOrNull() ?: 0.0) * 60).toInt()
+            val dup = WatchTracker.has(id)
+            if (dup) Text("This video is already in your library.", color = Pal.c.mutedForeground, fontSize = 12.sp)
+            Text(
+                "＋ Add to library", Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (title.isNotBlank() && dur > 0 && !dup) Primary else Pal.c.muted)
+                    .clickable(enabled = title.isNotBlank() && dur > 0 && !dup) {
+                        WatchTracker.add(title.trim(), dur, id); toast(ctx, "Added \"${title.trim()}\""); url = ""; title = ""; mins = ""
+                    }.padding(vertical = 12.dp),
+                color = Color.White, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchYouTube(scope: kotlinx.coroutines.CoroutineScope, ctx: android.content.Context) {
+    var q by rememberSaveable { mutableStateOf("Dr Vinay Kumar Singh ") }
+    var results by remember { mutableStateOf<List<WatchTracker.YtResult>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val d by WatchTracker.data.collectAsStateWithLifecycle()
+    val run: () -> Unit = {
+        if (q.isNotBlank()) {
+            loading = true; error = null
+            scope.launch {
+                runCatching { WatchTracker.search(q.trim()) }
+                    .onSuccess { results = it; if (it.isEmpty()) error = "No videos found." }
+                    .onFailure { error = "Search failed: ${it.message ?: "check your internet"}" }
+                loading = false
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(q, { q = it }, label = { Text("Keywords") }, singleLine = true, modifier = Modifier.weight(1f),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { run() }))
+            TextButton(onClick = run) { Text("Search") }
+        }
+        if (loading) Text("Searching YouTube…", color = Pal.c.mutedForeground, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+        error?.let { Text(it, color = Pal.c.destructive, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp)) }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            itemsIndexed(results, key = { _, r -> r.id }) { _, r ->
+                val added = d.videos.any { it.ytId == r.id }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.c.card).border(1.dp, Pal.c.border, RoundedCornerShape(12.dp)).padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(r.title, color = Pal.c.foreground, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(r.channel.takeIf { it.isNotBlank() }, if (r.durationS > 0) fmtWatch(r.durationS) else "live / unknown length").joinToString(" · "), fontSize = 11.sp, color = Pal.c.mutedForeground)
+                    }
+                    if (added) Text("✓ Added", color = Done, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    else TextButton(onClick = {
+                        scope.launch {
+                            // Search results sometimes lack the length; look it up then.
+                            val dur = if (r.durationS > 0) r.durationS else runCatching { WatchTracker.lookup(r.id).durationS }.getOrDefault(0)
+                            if (dur > 0) { WatchTracker.add(r.title, dur, r.id); toast(ctx, "Added \"${r.title}\"") }
+                            else toast(ctx, "Couldn't get this video's length — add it with Paste link")
+                        }
+                    }) { Text("＋ Add") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManualAdd(ctx: android.content.Context) {
     var title by remember { mutableStateOf("") }
     var mins by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDone, containerColor = Pal.c.card,
-        title = { Text("Add Video", color = Pal.c.foreground) },
-        text = {
-            Column {
-                OutlinedTextField(title, { title = it }, label = { Text("Video title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(mins, { mins = it }, label = { Text("Duration (minutes, or mm:ss)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(url, { url = it }, label = { Text("YouTube URL (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val dur = if (':' in mins) WatchTracker.parseClock(mins) else ((mins.toDoubleOrNull() ?: 0.0) * 60).toInt()
-                if (title.isNotBlank() && dur > 0) WatchTracker.add(title.trim(), dur, url.ifBlank { null })
-                onDone()
-            }) { Text("Add Video") }
-        },
-        dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(title, { title = it }, label = { Text("Video title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(mins, { mins = it }, label = { Text("Duration (minutes, or mm:ss)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(url, { url = it }, label = { Text("YouTube URL (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = {
+            val dur = if (':' in mins) WatchTracker.parseClock(mins) else ((mins.toDoubleOrNull() ?: 0.0) * 60).toInt()
+            if (title.isNotBlank() && dur > 0) { WatchTracker.add(title.trim(), dur, url.ifBlank { null }); toast(ctx, "Added \"${title.trim()}\""); title = ""; mins = ""; url = "" }
+            else toast(ctx, "Enter a title and duration")
+        }) { Text("＋ Add Video") }
+    }
 }
 
 /** Rank hero, stats, 14-day chart and career milestones. */
